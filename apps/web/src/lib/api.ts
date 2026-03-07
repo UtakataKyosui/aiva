@@ -2,12 +2,13 @@ import type {
   DailySuggestionResponse,
   IngredientInput,
   IngredientRecord,
+  LlmCatalogPreviewInput,
   LlmCatalogResponse,
   LlmProvider,
   MealLogInput,
   MealLogRecord,
-  UserLlmSettingsInput,
   UserLlmSettingsRecord,
+  UserLlmSettingsUpdateInput,
   UserPreferencesInput,
 } from '@aiva/shared';
 
@@ -42,13 +43,18 @@ const request = async <T>(path: string, init?: RequestInit) => {
 
   if (!response.ok) {
     const rawBody = await response.text();
+    let message = rawBody || 'Request failed';
 
     try {
       const payload = JSON.parse(rawBody) as { message?: string };
-      throw new Error(payload.message || 'Request failed');
+      if (payload.message) {
+        message = payload.message;
+      }
     } catch {
-      throw new Error(rawBody || 'Request failed');
+      // Fall back to the raw response body for non-JSON errors.
     }
+
+    throw new Error(message);
   }
 
   return (await response.json()) as T;
@@ -94,14 +100,20 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getLlmSettings: () => request<UserLlmSettingsRecord>('/api/llm-settings'),
-  saveLlmSettings: (input: UserLlmSettingsInput) =>
+  saveLlmSettings: (input: UserLlmSettingsUpdateInput) =>
     request<UserLlmSettingsRecord>('/api/llm-settings', {
       method: 'PUT',
       body: JSON.stringify(input),
     }),
   getLlmModels: (provider: LlmProvider) =>
     request<LlmCatalogResponse>(`/api/llm-models?provider=${provider}`),
-  getTodaySuggestion: () => request<DailySuggestionResponse | null>('/api/suggestions/today'),
+  previewLlmModels: (input: LlmCatalogPreviewInput) =>
+    request<LlmCatalogResponse>('/api/llm-models/preview', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  getTodaySuggestion: () =>
+    request<DailySuggestionResponse | null>('/api/suggestions/today'),
   generateTodaySuggestion: () =>
     request<DailySuggestionResponse>('/api/suggestions/today', {
       method: 'POST',

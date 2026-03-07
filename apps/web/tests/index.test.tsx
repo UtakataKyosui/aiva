@@ -1,6 +1,7 @@
 import { expect, test } from '@rstest/core';
+import { RouterProvider } from '@tanstack/react-router';
 import { render, screen } from '@testing-library/react';
-import App from '../src/App';
+import { router } from '../src/router';
 
 test('renders the main page', async () => {
   globalThis.fetch = async () =>
@@ -8,7 +9,10 @@ test('renders the main page', async () => {
       status: 401,
     });
 
-  render(<App />);
-  expect(await screen.findByText('Aiva')).toBeInTheDocument();
+  await router.navigate({ to: '/' });
+  render(<RouterProvider router={router} />);
+  expect(
+    await screen.findByRole('heading', { level: 1, name: 'Aiva' }),
+  ).toBeInTheDocument();
   expect(await screen.findByText('Google でログイン')).toBeInTheDocument();
 });

@@ -14,6 +14,7 @@
   "dependencies": {
     "@aiva/shared": "workspace:*",
     "@fontsource-variable/geist": "^5.2.8",
+    "@tanstack/react-router": "^1.166.2",
     "better-auth": "^1.5.4",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
