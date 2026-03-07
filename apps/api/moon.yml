@@ -1,0 +1,38 @@
+language: javascript
+dependsOn:
+  - shared
+
+tasks:
+  dev:
+    command: pnpm dev
+    deps:
+      - ^:build
+    local: true
+  build:
+    command: pnpm build
+    deps:
+      - ^:build
+    inputs:
+      - src/**/*
+      - package.json
+      - tsconfig*.json
+      - drizzle.config.ts
+    outputs:
+      - dist
+  test:
+    command: pnpm test
+    deps:
+      - ^:build
+    inputs:
+      - src/**/*
+      - package.json
+      - tsconfig*.json
+  lint:
+    command: pnpm lint
+    inputs:
+      - src/**/*
+      - package.json
+      - biome.json
+  format:
+    command: pnpm format
+    local: true
