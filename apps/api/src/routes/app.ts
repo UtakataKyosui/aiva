@@ -1,7 +1,11 @@
 import {
   dailySuggestionResponseSchema,
   ingredientInputSchema,
+  llmCatalogResponseSchema,
+  llmProviderSchema,
   mealLogInputSchema,
+  userLlmSettingsInputSchema,
+  userLlmSettingsRecordSchema,
   userPreferencesInputSchema,
 } from '@aiva/shared';
 import { and, desc, eq } from 'drizzle-orm';
@@ -10,12 +14,27 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { requireSession } from '../auth/session.js';
 import { db } from '../db/client.js';
-import { ingredients, mealLogs, suggestionRuns, userPreferences } from '../db/schema.js';
+import {
+  ingredients,
+  mealLogs,
+  suggestionRuns,
+  userLlmSettings,
+  userPreferences,
+} from '../db/schema.js';
 import { getTodayInJapan } from '../lib/date.js';
+import {
+  getModelCatalog,
+  resolveStoredLlmSettings,
+  validateLlmSettings,
+} from '../lib/llm.js';
 import { mastra } from '../mastra/index.js';
 
 const idSchema = z.object({
   id: z.string().uuid(),
+});
+
+const llmCatalogQuerySchema = z.object({
+  provider: llmProviderSchema,
 });
 
 export const appRoutes = new Hono();
@@ -223,6 +242,104 @@ appRoutes.put('/preferences', async (context) => {
   return context.json(created, 201);
 });
 
+appRoutes.get('/llm-settings', async (context) => {
+  const { user } = await requireSession(context);
+
+  const existing = await db.query.userLlmSettings.findFirst({
+    where: eq(userLlmSettings.userId, user.id),
+  });
+
+  const resolved = await resolveStoredLlmSettings(
+    existing
+      ? {
+          provider: llmProviderSchema.parse(existing.provider),
+          modelId: existing.modelId,
+        }
+      : null,
+  );
+
+  return context.json(
+    userLlmSettingsRecordSchema.parse({
+      provider: resolved.provider,
+      modelId: resolved.modelId,
+      updatedAt: existing?.updatedAt.toISOString() ?? null,
+    }),
+  );
+});
+
+appRoutes.put('/llm-settings', async (context) => {
+  const { user } = await requireSession(context);
+  const payload = userLlmSettingsInputSchema.parse(await context.req.json());
+
+  const validationError = await validateLlmSettings(payload).catch((error) =>
+    error instanceof Error ? error.message : 'モデル設定の検証に失敗しました。',
+  );
+
+  if (validationError) {
+    throw new HTTPException(400, { message: validationError });
+  }
+
+  const existing = await db.query.userLlmSettings.findFirst({
+    where: eq(userLlmSettings.userId, user.id),
+  });
+
+  if (existing) {
+    const [updated] = await db
+      .update(userLlmSettings)
+      .set({
+        provider: payload.provider,
+        modelId: payload.modelId,
+        updatedAt: new Date(),
+      })
+      .where(eq(userLlmSettings.userId, user.id))
+      .returning();
+
+    return context.json(
+      userLlmSettingsRecordSchema.parse({
+        provider: updated.provider,
+        modelId: updated.modelId,
+        updatedAt: updated.updatedAt.toISOString(),
+      }),
+    );
+  }
+
+  const [created] = await db
+    .insert(userLlmSettings)
+    .values({
+      id: crypto.randomUUID(),
+      userId: user.id,
+      provider: payload.provider,
+      modelId: payload.modelId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning();
+
+  return context.json(
+    userLlmSettingsRecordSchema.parse({
+      provider: created.provider,
+      modelId: created.modelId,
+      updatedAt: created.updatedAt.toISOString(),
+    }),
+    201,
+  );
+});
+
+appRoutes.get('/llm-models', async (context) => {
+  await requireSession(context);
+  const query = llmCatalogQuerySchema.parse(context.req.query());
+
+  try {
+    const catalog = await getModelCatalog(query.provider);
+    return context.json(llmCatalogResponseSchema.parse(catalog));
+  } catch (error) {
+    throw new HTTPException(502, {
+      message:
+        error instanceof Error ? error.message : 'モデル一覧の取得に失敗しました。',
+    });
+  }
+});
+
 appRoutes.get('/suggestions/today', async (context) => {
   const { user } = await requireSession(context);
   const today = getTodayInJapan();
@@ -236,7 +353,19 @@ appRoutes.get('/suggestions/today', async (context) => {
     return context.json(null);
   }
 
-  return context.json(dailySuggestionResponseSchema.parse(latest.result));
+  return context.json(
+    dailySuggestionResponseSchema.parse({
+      ...(latest.result as Record<string, unknown>),
+      llm:
+        (latest.result as Record<string, unknown>).llm ??
+        (latest.llmProvider && latest.llmModelId
+          ? {
+              provider: latest.llmProvider,
+              modelId: latest.llmModelId,
+            }
+          : null),
+    }),
+  );
 });
 
 appRoutes.post('/suggestions/today', async (context) => {

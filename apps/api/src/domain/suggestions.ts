@@ -1,4 +1,8 @@
-import { dailySuggestionResponseSchema, suggestionMealSchema } from '@aiva/shared';
+import {
+  dailySuggestionResponseSchema,
+  suggestionMealSchema,
+  type UserLlmSettingsInput,
+} from '@aiva/shared';
 import { z } from 'zod';
 import { daysUntil } from '../lib/date.js';
 
@@ -30,6 +34,7 @@ export type SuggestionContext = {
   ingredients: IngredientRow[];
   meals: MealLogRow[];
   preferences: PreferenceRow;
+  llm?: UserLlmSettingsInput | null;
 };
 
 export const generatedMealPlanSchema = z.object({
@@ -212,12 +217,14 @@ ${JSON.stringify(constraints, null, 2)}
 export const createFallbackSuggestion = (
   context: SuggestionContext,
   priorities: PrioritizedIngredient[],
+  fallbackReason?: string,
 ) => {
   const recentPattern = buildRecentPattern(context.meals);
 
   return dailySuggestionResponseSchema.parse({
     suggestionDate: context.suggestionDate,
     generatedAt: new Date().toISOString(),
+    llm: context.llm ?? null,
     priorities,
     recentPattern,
     meals: priorities.length
@@ -247,6 +254,8 @@ export const createFallbackSuggestion = (
           },
         ],
     note:
-      'AI 提案を取得できなかったため、在庫と履歴ルールに基づく簡易提案を表示しています。',
+      fallbackReason
+        ? `AI 提案を取得できなかったため、在庫と履歴ルールに基づく簡易提案を表示しています。(${fallbackReason})`
+        : 'AI 提案を取得できなかったため、在庫と履歴ルールに基づく簡易提案を表示しています。',
   });
 };

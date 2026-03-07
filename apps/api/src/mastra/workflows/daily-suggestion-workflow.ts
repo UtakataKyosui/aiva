@@ -1,15 +1,26 @@
-import { dailySuggestionResponseSchema } from '@aiva/shared';
+import {
+  dailySuggestionResponseSchema,
+  llmProviderSchema,
+  userLlmSettingsInputSchema,
+} from '@aiva/shared';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
+import { RequestContext } from '@mastra/core/request-context';
 import { z } from 'zod';
 import { db } from '../../db/client.js';
-import { ingredients, mealLogs, suggestionRuns, userPreferences } from '../../db/schema.js';
-import { env } from '../../env.js';
+import {
+  ingredients,
+  mealLogs,
+  suggestionRuns,
+  userLlmSettings,
+  userPreferences,
+} from '../../db/schema.js';
 import {
   buildSuggestionPrompt,
   createFallbackSuggestion,
   generatedMealPlanSchema,
   rankIngredients,
 } from '../../domain/suggestions.js';
+import { resolveStoredLlmSettings, validateLlmSettings } from '../../lib/llm.js';
 import { mealSuggestionAgent } from '../agents/meal-suggestion-agent.js';
 import { and, desc, eq, gte } from 'drizzle-orm';
 
@@ -47,6 +58,7 @@ const collectedContextSchema = z.object({
       note: z.string().nullable(),
     })
     .nullable(),
+  llm: userLlmSettingsInputSchema,
 });
 
 const prioritizedContextSchema = collectedContextSchema.extend({
@@ -68,7 +80,7 @@ const collectUserContext = createStep({
     const dateFrom = new Date(`${inputData.suggestionDate}T00:00:00+09:00`);
     dateFrom.setDate(dateFrom.getDate() - 7);
 
-    const [ingredientRows, mealRows, preferenceRow] = await Promise.all([
+    const [ingredientRows, mealRows, preferenceRow, llmRow] = await Promise.all([
       db
         .select({
           id: ingredients.id,
@@ -99,7 +111,19 @@ const collectUserContext = createStep({
       db.query.userPreferences.findFirst({
         where: eq(userPreferences.userId, inputData.userId),
       }),
+      db.query.userLlmSettings.findFirst({
+        where: eq(userLlmSettings.userId, inputData.userId),
+      }),
     ]);
+
+    const llm = await resolveStoredLlmSettings(
+      llmRow
+        ? {
+            provider: llmProviderSchema.parse(llmRow.provider),
+            modelId: llmRow.modelId,
+          }
+        : null,
+    );
 
     return {
       userId: inputData.userId,
@@ -120,6 +144,7 @@ const collectUserContext = createStep({
             note: preferenceRow.note,
           }
         : null,
+      llm,
     };
   },
 });
@@ -146,24 +171,42 @@ const generateSuggestion = createStep({
   inputSchema: prioritizedContextSchema,
   outputSchema: persistedSuggestionSchema,
   execute: async ({ inputData }) => {
-    if (!env.OPENAI_API_KEY) {
+    const validationError = await validateLlmSettings(inputData.llm).catch((error) =>
+      error instanceof Error ? error.message : 'モデル設定の検証に失敗しました。',
+    );
+
+    if (validationError) {
       return {
-        ...createFallbackSuggestion(inputData, inputData.priorities),
+        ...createFallbackSuggestion(inputData, inputData.priorities, validationError),
         userId: inputData.userId,
         prompt: inputData.prompt,
       };
     }
 
     try {
+      const requestContext = new RequestContext<{
+        llmProvider: 'openai' | 'openrouter';
+        llmModelId: string;
+      }>();
+      requestContext.set('llmProvider', inputData.llm.provider);
+      requestContext.set('llmModelId', inputData.llm.modelId);
+
       const response = await mealSuggestionAgent.generate(inputData.prompt, {
+        requestContext,
         structuredOutput: {
           schema: generatedMealPlanSchema,
+          jsonPromptInjection: true,
         },
       });
+      const generatedObject = response.object as z.infer<typeof generatedMealPlanSchema> | undefined;
 
-      if (!response.object) {
+      if (!generatedObject) {
         return {
-          ...createFallbackSuggestion(inputData, inputData.priorities),
+          ...createFallbackSuggestion(
+            inputData,
+            inputData.priorities,
+            'モデルから構造化レスポンスを取得できませんでした。',
+          ),
           userId: inputData.userId,
           prompt: inputData.prompt,
         };
@@ -172,17 +215,22 @@ const generateSuggestion = createStep({
       return persistedSuggestionSchema.parse({
         suggestionDate: inputData.suggestionDate,
         generatedAt: new Date().toISOString(),
+        llm: inputData.llm,
         priorities: inputData.priorities,
         recentPattern: inputData.recentPattern,
-        meals: response.object.meals,
-        note: response.object.note,
+        meals: generatedObject.meals,
+        note: generatedObject.note,
         userId: inputData.userId,
         prompt: inputData.prompt,
       });
     } catch (error) {
       console.error('Failed to generate AI suggestion, using fallback.', error);
       return {
-        ...createFallbackSuggestion(inputData, inputData.priorities),
+        ...createFallbackSuggestion(
+          inputData,
+          inputData.priorities,
+          error instanceof Error ? error.message : 'LLM 呼び出しに失敗しました。',
+        ),
         userId: inputData.userId,
         prompt: inputData.prompt,
       };
@@ -202,7 +250,10 @@ const persistSuggestion = createStep({
       id: crypto.randomUUID(),
       userId: inputData.userId,
       suggestionDate: inputData.suggestionDate,
+      llmProvider: inputData.llm?.provider ?? null,
+      llmModelId: inputData.llm?.modelId ?? null,
       inputBrief: {
+        llm: inputData.llm ?? null,
         priorities: inputData.priorities,
         recentPattern: inputData.recentPattern,
         prompt: inputData.prompt,

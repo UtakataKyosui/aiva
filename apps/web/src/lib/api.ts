@@ -2,8 +2,12 @@ import type {
   DailySuggestionResponse,
   IngredientInput,
   IngredientRecord,
+  LlmCatalogResponse,
+  LlmProvider,
   MealLogInput,
   MealLogRecord,
+  UserLlmSettingsInput,
+  UserLlmSettingsRecord,
   UserPreferencesInput,
 } from '@aiva/shared';
 
@@ -37,8 +41,14 @@ const request = async <T>(path: string, init?: RequestInit) => {
   }
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || 'Request failed');
+    const rawBody = await response.text();
+
+    try {
+      const payload = JSON.parse(rawBody) as { message?: string };
+      throw new Error(payload.message || 'Request failed');
+    } catch {
+      throw new Error(rawBody || 'Request failed');
+    }
   }
 
   return (await response.json()) as T;
@@ -83,6 +93,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     }),
+  getLlmSettings: () => request<UserLlmSettingsRecord>('/api/llm-settings'),
+  saveLlmSettings: (input: UserLlmSettingsInput) =>
+    request<UserLlmSettingsRecord>('/api/llm-settings', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+  getLlmModels: (provider: LlmProvider) =>
+    request<LlmCatalogResponse>(`/api/llm-models?provider=${provider}`),
   getTodaySuggestion: () => request<DailySuggestionResponse | null>('/api/suggestions/today'),
   generateTodaySuggestion: () =>
     request<DailySuggestionResponse>('/api/suggestions/today', {

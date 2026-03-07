@@ -1,6 +1,7 @@
 # Aiva
 
-Mastra を使って「登録済みの食材」「最近の食事記録」「個人条件」から当日の食事サジェストを生成する生活支援アプリです。
+Mastra を使って「登録済みの食材」「最近の食事記録」「個人条件」から当日の食事サジェストを生成する生活支援アプリです。  
+Google ログイン後、ユーザーごとに `OpenAI` または `OpenRouter` の provider / model を切り替えて提案生成に使えます。
 
 ## Workspace
 
@@ -24,6 +25,8 @@ pnpm install
 ```bash
 cp .env.example .env
 ```
+
+`OPENAI_API_KEY` と `OPENROUTER_API_KEY` は両対応です。どちらか片方だけでも起動できますが、使いたい provider に対応するキーは設定してください。
 
 3. PostgreSQL を起動
 
@@ -49,6 +52,11 @@ pnpm db:migrate
 ```bash
 pnpm dev
 ```
+
+7. ログイン後に `AI設定` セクションから provider と model を保存
+
+- `OpenAI`: アプリ内の固定候補から選択
+- `OpenRouter`: サーバー側の `OPENROUTER_API_KEY` を使って取得したモデル一覧から選択
 
 ## Ports
 

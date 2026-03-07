@@ -27,6 +27,7 @@ export const quantityUnits = [
 ] as const;
 
 export const mealTypes = ['朝食', '昼食', '夕食', '間食'] as const;
+export const llmProviders = ['openai', 'openrouter'] as const;
 
 export const ingredientInputSchema = z.object({
   name: z.string().min(1, '食材名は必須です'),
@@ -72,6 +73,32 @@ export const userPreferencesRecordSchema = userPreferencesInputSchema.extend({
   updatedAt: z.string(),
 });
 
+export const llmProviderSchema = z.enum(llmProviders);
+
+export const userLlmSettingsInputSchema = z.object({
+  provider: llmProviderSchema,
+  modelId: z.string().min(1, 'モデルIDは必須です'),
+});
+
+export const userLlmSettingsRecordSchema = userLlmSettingsInputSchema.extend({
+  updatedAt: z.string().nullable(),
+});
+
+export const llmModelOptionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  contextLength: z.number().int().nullable(),
+  supportsStructuredOutput: z.boolean(),
+});
+
+export const llmCatalogResponseSchema = z.object({
+  provider: llmProviderSchema,
+  available: z.boolean(),
+  reason: z.string().nullable(),
+  models: z.array(llmModelOptionSchema),
+});
+
 export const prioritizedIngredientSchema = z.object({
   ingredientId: z.string(),
   name: z.string(),
@@ -89,6 +116,7 @@ export const suggestionMealSchema = z.object({
 export const dailySuggestionResponseSchema = z.object({
   suggestionDate: z.string(),
   generatedAt: z.string(),
+  llm: userLlmSettingsInputSchema.nullable().optional(),
   priorities: z.array(prioritizedIngredientSchema),
   recentPattern: z.string(),
   meals: z.array(suggestionMealSchema).min(1),
@@ -101,4 +129,9 @@ export type MealLogInput = z.infer<typeof mealLogInputSchema>;
 export type MealLogRecord = z.infer<typeof mealLogRecordSchema>;
 export type UserPreferencesInput = z.infer<typeof userPreferencesInputSchema>;
 export type UserPreferencesRecord = z.infer<typeof userPreferencesRecordSchema>;
+export type LlmProvider = z.infer<typeof llmProviderSchema>;
+export type UserLlmSettingsInput = z.infer<typeof userLlmSettingsInputSchema>;
+export type UserLlmSettingsRecord = z.infer<typeof userLlmSettingsRecordSchema>;
+export type LlmModelOption = z.infer<typeof llmModelOptionSchema>;
+export type LlmCatalogResponse = z.infer<typeof llmCatalogResponseSchema>;
 export type DailySuggestionResponse = z.infer<typeof dailySuggestionResponseSchema>;

@@ -35,6 +35,22 @@ export const userPreferences = pgTable(
   }),
 );
 
+export const userLlmSettings = pgTable(
+  'user_llm_settings',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authSchema.user.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    modelId: text('model_id').notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    userUnique: uniqueIndex('user_llm_settings_user_id_idx').on(table.userId),
+  }),
+);
+
 export const ingredients = pgTable(
   'ingredients',
   {
@@ -88,6 +104,8 @@ export const suggestionRuns = pgTable(
       .notNull()
       .references(() => authSchema.user.id, { onDelete: 'cascade' }),
     suggestionDate: date('suggestion_date').notNull(),
+    llmProvider: text('llm_provider'),
+    llmModelId: text('llm_model_id'),
     inputBrief: jsonb('input_brief').$type<Record<string, unknown>>().notNull(),
     result: jsonb('result').$type<Record<string, unknown>>().notNull(),
     ...timestamps,
@@ -101,6 +119,7 @@ export const suggestionRuns = pgTable(
 export const schema = {
   ...authSchema,
   userPreferences,
+  userLlmSettings,
   ingredients,
   mealLogs,
   suggestionRuns,

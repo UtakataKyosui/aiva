@@ -1,10 +1,15 @@
-import { suggestionMealSchema } from '@aiva/shared';
+import { llmProviderSchema, type LlmProvider, suggestionMealSchema } from '@aiva/shared';
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 
 export const mealSuggestionObjectSchema = z.object({
   meals: z.array(suggestionMealSchema).min(1).max(3),
   note: z.string().min(1),
+});
+
+const llmRequestContextSchema = z.object({
+  llmProvider: llmProviderSchema,
+  llmModelId: z.string().min(1),
 });
 
 export const mealSuggestionAgent = new Agent({
@@ -20,5 +25,10 @@ export const mealSuggestionAgent = new Agent({
 - 提案は家庭で作りやすい現実的な内容にする
 - JSON 変換しやすい、短く具体的な文章にする
 `,
-  model: 'openai/gpt-5-mini',
+  requestContextSchema: llmRequestContextSchema,
+  model: ({ requestContext }) => {
+    const provider = (requestContext.get('llmProvider') as LlmProvider | undefined) ?? 'openai';
+    const modelId = (requestContext.get('llmModelId') as string | undefined) ?? 'gpt-5-mini';
+    return `${provider}/${modelId}`;
+  },
 });
