@@ -1,0 +1,14 @@
+{
+  "extends": "../../packages/config/typescript/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["DOM", "ES2022"],
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@aiva/shared": ["../../packages/shared/src/index.ts"],
+      "@aiva/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src", "tests", "rsbuild.config.ts", "rstest.config.ts"]
+}
