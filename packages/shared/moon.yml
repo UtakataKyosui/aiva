@@ -1,0 +1,24 @@
+tasks:
+  build:
+    command: pnpm build
+    outputs:
+      - dist
+    inputs:
+      - src/**/*
+      - package.json
+      - tsconfig.json
+  test:
+    command: pnpm test
+    inputs:
+      - src/**/*
+      - package.json
+      - tsconfig.json
+  lint:
+    command: pnpm lint
+    inputs:
+      - src/**/*
+      - package.json
+      - biome.json
+  format:
+    command: pnpm format
+    local: true
