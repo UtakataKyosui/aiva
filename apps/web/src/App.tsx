@@ -11,7 +11,7 @@ import type {
   UserLlmSettingsRecord,
   UserPreferencesInput,
 } from '@aiva/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import './App.css';
 import { api, type SessionPayload } from './lib/api';
 
@@ -28,9 +28,26 @@ const ingredientCategories = [
   'その他',
 ] as const;
 
-const quantityUnits = ['g', 'kg', 'ml', 'l', '個', '本', '袋', 'パック', '枚', '食分'] as const;
+const quantityUnits = [
+  'g',
+  'kg',
+  'ml',
+  'l',
+  '個',
+  '本',
+  '袋',
+  'パック',
+  '枚',
+  '食分',
+] as const;
 const mealTypes = ['朝食', '昼食', '夕食', '間食'] as const;
+const llmProviderOptions: LlmProvider[] = [
+  'selfhosted',
+  'openai',
+  'openrouter',
+];
 const providerLabels: Record<LlmProvider, string> = {
+  selfhosted: 'ローカル / サーバ LLM',
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
 };
@@ -125,20 +142,32 @@ const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<IngredientRecord[]>([]);
   const [meals, setMeals] = useState<MealLogRecord[]>([]);
-  const [preferences, setPreferences] = useState<UserPreferencesInput>(defaultPreferences());
-  const [llmSettings, setLlmSettings] = useState<UserLlmSettingsRecord>(defaultLlmRecord());
-  const [llmDraft, setLlmDraft] = useState<UserLlmSettingsInput>(defaultLlmSettings());
+  const [preferences, setPreferences] = useState<UserPreferencesInput>(
+    defaultPreferences(),
+  );
+  const [llmSettings, setLlmSettings] = useState<UserLlmSettingsRecord>(
+    defaultLlmRecord(),
+  );
+  const [llmDraft, setLlmDraft] = useState<UserLlmSettingsInput>(
+    defaultLlmSettings(),
+  );
   const [llmCatalog, setLlmCatalog] = useState<LlmCatalogResponse | null>(null);
   const [llmCatalogLoading, setLlmCatalogLoading] = useState(false);
-  const [suggestion, setSuggestion] = useState<DailySuggestionResponse | null>(null);
-  const [ingredientForm, setIngredientForm] = useState<IngredientInput>(defaultIngredientForm());
+  const [suggestion, setSuggestion] = useState<DailySuggestionResponse | null>(
+    null,
+  );
+  const [ingredientForm, setIngredientForm] = useState<IngredientInput>(
+    defaultIngredientForm(),
+  );
   const [mealForm, setMealForm] = useState<MealLogInput>(defaultMealForm());
   const [preferenceDraft, setPreferenceDraft] = useState({
     allergies: '',
     dislikes: '',
     note: '',
   });
-  const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null);
+  const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
+    null,
+  );
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
 
   const fetchLlmCatalog = async (provider: LlmProvider) => {
@@ -206,17 +235,20 @@ const App = () => {
     }
   };
 
+  const loadSessionEvent = useEffectEvent(loadSession);
+  const loadDashboardEvent = useEffectEvent(loadDashboard);
+
   useEffect(() => {
     let active = true;
 
     const bootstrap = async () => {
-      const nextSession = await loadSession();
+      const nextSession = await loadSessionEvent();
       if (!active) {
         return;
       }
 
       if (nextSession) {
-        await loadDashboard();
+        await loadDashboardEvent();
       }
 
       if (active) {
@@ -296,7 +328,9 @@ const App = () => {
     setMealForm(defaultMealForm());
   };
 
-  const handleIngredientSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleIngredientSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -336,7 +370,9 @@ const App = () => {
     }
   };
 
-  const handlePreferencesSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handlePreferencesSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -371,12 +407,14 @@ const App = () => {
       provider,
       modelId: nextCatalog.models.some((model) => model.id === current.modelId)
         ? current.modelId
-        : nextCatalog.models[0]?.id ?? '',
+        : (nextCatalog.models[0]?.id ?? ''),
     }));
     setLlmCatalogLoading(false);
   };
 
-  const handleLlmSettingsSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleLlmSettingsSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
@@ -458,7 +496,10 @@ const App = () => {
   const expiringSoon = ingredients.filter(
     (ingredient) =>
       ingredient.expiresOn &&
-      ingredient.expiresOn <= new Date(Date.now() + 1000 * 60 * 60 * 24 * 3).toISOString().slice(0, 10),
+      ingredient.expiresOn <=
+        new Date(Date.now() + 1000 * 60 * 60 * 24 * 3)
+          .toISOString()
+          .slice(0, 10),
   );
 
   const latestMeals = meals.slice(0, 5);
@@ -478,7 +519,8 @@ const App = () => {
     return [fallbackModelOption(llmDraft.modelId), ...llmCatalog.models];
   }, [llmCatalog, llmDraft.modelId]);
 
-  const selectedLlmModel = llmModelOptions.find((model) => model.id === llmDraft.modelId) ?? null;
+  const selectedLlmModel =
+    llmModelOptions.find((model) => model.id === llmDraft.modelId) ?? null;
   const selectedModelAvailable =
     llmCatalog?.models.some((model) => model.id === llmDraft.modelId) ?? false;
 
@@ -514,12 +556,22 @@ const App = () => {
                 <span>{session.user.name}</span>
                 <small>{session.user.email}</small>
               </div>
-              <button type="button" className="primary-button" onClick={handleSignOut} disabled={busy}>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleSignOut}
+                disabled={busy}
+              >
                 ログアウト
               </button>
             </>
           ) : (
-            <button type="button" className="primary-button" onClick={handleGoogleSignIn} disabled={busy}>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleGoogleSignIn}
+              disabled={busy}
+            >
               Google でログイン
             </button>
           )}
@@ -536,11 +588,15 @@ const App = () => {
           </article>
           <article className="feature-card">
             <h2>2. 食事を記録</h2>
-            <p>朝昼夕のメニューと満足度を残して、最近の傾向を学習材料にします。</p>
+            <p>
+              朝昼夕のメニューと満足度を残して、最近の傾向を学習材料にします。
+            </p>
           </article>
           <article className="feature-card">
             <h2>3. 今日の提案</h2>
-            <p>Mastra がルールと AI を組み合わせて、在庫優先の献立を返します。</p>
+            <p>
+              Mastra がルールと AI を組み合わせて、在庫優先の献立を返します。
+            </p>
           </article>
         </section>
       ) : (
@@ -571,7 +627,12 @@ const App = () => {
                   <p className="eyebrow">Today&apos;s Suggestion</p>
                   <h2>今日の食事サジェスト</h2>
                 </div>
-                <button type="button" className="primary-button" onClick={handleGenerateSuggestion} disabled={busy}>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleGenerateSuggestion}
+                  disabled={busy}
+                >
                   {suggestion ? '再生成する' : '生成する'}
                 </button>
               </div>
@@ -583,13 +644,17 @@ const App = () => {
                     <p>{suggestion.note}</p>
                     <p className="muted-copy">{suggestion.recentPattern}</p>
                     <p className="muted-copy">
-                      使用モデル: {formatLlmSelection(suggestion.llm ?? llmSettings)}
+                      使用モデル:{' '}
+                      {formatLlmSelection(suggestion.llm ?? llmSettings)}
                     </p>
                   </div>
 
                   <div className="priority-list">
                     {suggestion.priorities.map((priority) => (
-                      <div key={priority.ingredientId} className="priority-item">
+                      <div
+                        key={priority.ingredientId}
+                        className="priority-item"
+                      >
                         <div>
                           <strong>{priority.name}</strong>
                           <p>{priority.reason}</p>
@@ -642,7 +707,10 @@ const App = () => {
                     <input
                       value={ingredientForm.name}
                       onChange={(event) =>
-                        setIngredientForm((current) => ({ ...current, name: event.target.value }))
+                        setIngredientForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
                       }
                       placeholder="例: 鶏むね肉"
                       required
@@ -655,7 +723,8 @@ const App = () => {
                       onChange={(event) =>
                         setIngredientForm((current) => ({
                           ...current,
-                          category: event.target.value as IngredientInput['category'],
+                          category: event.target
+                            .value as IngredientInput['category'],
                         }))
                       }
                     >
@@ -789,7 +858,11 @@ const App = () => {
                 </div>
 
                 <div className="form-actions">
-                  <button type="submit" className="primary-button" disabled={busy}>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={busy}
+                  >
                     {editingIngredientId ? '食材を更新' : '食材を追加'}
                   </button>
                   {editingIngredientId ? (
@@ -815,14 +888,24 @@ const App = () => {
                       <p>
                         {ingredient.quantity}
                         {ingredient.unit} / {ingredient.category}
-                        {ingredient.expiresOn ? ` / 期限 ${ingredient.expiresOn}` : ' / 期限未登録'}
+                        {ingredient.expiresOn
+                          ? ` / 期限 ${ingredient.expiresOn}`
+                          : ' / 期限未登録'}
                       </p>
                     </div>
                     <div className="row-actions">
-                      <button type="button" className="secondary-button" onClick={() => startIngredientEdit(ingredient)}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => startIngredientEdit(ingredient)}
+                      >
                         編集
                       </button>
-                      <button type="button" className="ghost-button" onClick={() => deleteIngredient(ingredient.id)}>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => deleteIngredient(ingredient.id)}
+                      >
                         削除
                       </button>
                     </div>
@@ -861,7 +944,8 @@ const App = () => {
                       onChange={(event) =>
                         setMealForm((current) => ({
                           ...current,
-                          mealType: event.target.value as MealLogInput['mealType'],
+                          mealType: event.target
+                            .value as MealLogInput['mealType'],
                         }))
                       }
                     >
@@ -917,7 +1001,11 @@ const App = () => {
                 </div>
 
                 <div className="form-actions">
-                  <button type="submit" className="primary-button" disabled={busy}>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={busy}
+                  >
                     {editingMealId ? '記録を更新' : '記録を追加'}
                   </button>
                   {editingMealId ? (
@@ -942,14 +1030,24 @@ const App = () => {
                       <strong>{meal.menuName}</strong>
                       <p>
                         {meal.consumedOn} / {meal.mealType}
-                        {meal.satisfaction ? ` / 満足度 ${meal.satisfaction}` : ''}
+                        {meal.satisfaction
+                          ? ` / 満足度 ${meal.satisfaction}`
+                          : ''}
                       </p>
                     </div>
                     <div className="row-actions">
-                      <button type="button" className="secondary-button" onClick={() => startMealEdit(meal)}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => startMealEdit(meal)}
+                      >
                         編集
                       </button>
-                      <button type="button" className="ghost-button" onClick={() => deleteMeal(meal.id)}>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => deleteMeal(meal.id)}
+                      >
                         削除
                       </button>
                     </div>
@@ -1010,7 +1108,11 @@ const App = () => {
                   </label>
                 </div>
                 <div className="form-actions">
-                  <button type="submit" className="primary-button" disabled={busy}>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={busy}
+                  >
                     条件を保存
                   </button>
                 </div>
@@ -1019,11 +1121,15 @@ const App = () => {
               <div className="preference-preview">
                 <p>
                   <strong>アレルギー:</strong>{' '}
-                  {preferences.allergies.length ? preferences.allergies.join('、') : '未設定'}
+                  {preferences.allergies.length
+                    ? preferences.allergies.join('、')
+                    : '未設定'}
                 </p>
                 <p>
                   <strong>苦手食材:</strong>{' '}
-                  {preferences.dislikes.length ? preferences.dislikes.join('、') : '未設定'}
+                  {preferences.dislikes.length
+                    ? preferences.dislikes.join('、')
+                    : '未設定'}
                 </p>
               </div>
             </article>
@@ -1043,10 +1149,12 @@ const App = () => {
                     <select
                       value={llmDraft.provider}
                       onChange={(event) => {
-                        void handleLlmProviderChange(event.target.value as LlmProvider);
+                        void handleLlmProviderChange(
+                          event.target.value as LlmProvider,
+                        );
                       }}
                     >
-                      {(Object.keys(providerLabels) as LlmProvider[]).map((provider) => (
+                      {llmProviderOptions.map((provider) => (
                         <option key={provider} value={provider}>
                           {providerLabels[provider]}
                         </option>
@@ -1063,7 +1171,9 @@ const App = () => {
                           modelId: event.target.value,
                         }))
                       }
-                      disabled={llmCatalogLoading || llmModelOptions.length === 0}
+                      disabled={
+                        llmCatalogLoading || llmModelOptions.length === 0
+                      }
                     >
                       {llmModelOptions.length ? (
                         llmModelOptions.map((model) => (
@@ -1073,14 +1183,18 @@ const App = () => {
                         ))
                       ) : (
                         <option value="">
-                          {llmCatalogLoading ? 'モデル一覧を読み込んでいます...' : '利用可能なモデルがありません'}
+                          {llmCatalogLoading
+                            ? 'モデル一覧を読み込んでいます...'
+                            : '利用可能なモデルがありません'}
                         </option>
                       )}
                     </select>
                   </label>
                   <div className="full-width ai-status-box">
                     <div className="status-row">
-                      <span className={`status-pill ${llmCatalog?.available ? 'available' : 'unavailable'}`}>
+                      <span
+                        className={`status-pill ${llmCatalog?.available ? 'available' : 'unavailable'}`}
+                      >
                         {llmCatalog?.available ? '利用可能' : '要設定'}
                       </span>
                       <span className="status-pill neutral">
@@ -1090,17 +1204,22 @@ const App = () => {
                     <p className="muted-copy">
                       {llmCatalogLoading
                         ? '選択中 provider のモデル一覧を取得しています。'
-                        : llmCatalog?.reason ?? 'サーバー側の API キーで利用可能なモデル候補を表示しています。'}
+                        : (llmCatalog?.reason ??
+                          'サーバー側の API キーで利用可能なモデル候補を表示しています。')}
                     </p>
                     {llmCatalog?.available && !selectedModelAvailable ? (
                       <p className="muted-copy">
-                        現在の保存値は最新の catalog に含まれていません。利用可能な model に切り替えて保存してください。
+                        現在の保存値は最新の catalog
+                        に含まれていません。利用可能な model
+                        に切り替えて保存してください。
                       </p>
                     ) : null}
                     {selectedLlmModel ? (
                       <div className="model-meta">
                         <strong>{selectedLlmModel.name}</strong>
-                        <p>{selectedLlmModel.description ?? '説明はありません。'}</p>
+                        <p>
+                          {selectedLlmModel.description ?? '説明はありません。'}
+                        </p>
                         <p className="muted-copy">
                           {selectedLlmModel.contextLength
                             ? `コンテキスト長: ${selectedLlmModel.contextLength.toLocaleString()}`
@@ -1133,7 +1252,8 @@ const App = () => {
 
               <div className="preference-preview">
                 <p>
-                  <strong>現在の provider:</strong> {providerLabels[llmSettings.provider]}
+                  <strong>現在の provider:</strong>{' '}
+                  {providerLabels[llmSettings.provider]}
                 </p>
                 <p>
                   <strong>現在の model:</strong> {llmSettings.modelId}

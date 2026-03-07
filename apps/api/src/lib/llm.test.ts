@@ -1,7 +1,8 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 
-process.env.DATABASE_URL ??= 'postgresql://postgres:postgres@localhost:5432/aiva';
+process.env.DATABASE_URL ??=
+  'postgresql://postgres:postgres@localhost:5432/aiva';
 process.env.BETTER_AUTH_SECRET ??= '0123456789abcdef0123456789abcdef';
 process.env.BETTER_AUTH_URL ??= 'http://localhost:4112/api/auth';
 process.env.WEB_ORIGIN ??= 'http://localhost:3000';
@@ -9,7 +10,9 @@ process.env.GOOGLE_CLIENT_ID ??= 'dummy';
 process.env.GOOGLE_CLIENT_SECRET ??= 'dummy';
 
 const {
+  getSelfHostedApiKey,
   getPreferredOpenRouterModelId,
+  normalizeSelfHostedCatalog,
   normalizeOpenRouterCatalog,
   toMastraModelId,
 } = await import('./llm.js');
@@ -65,6 +68,27 @@ test('getPreferredOpenRouterModelId picks preferred ids before fallback', () => 
   assert.equal(preferred, 'openai/gpt-4o-mini');
 });
 
+test('normalizeSelfHostedCatalog maps OpenAI-compatible model payloads', () => {
+  const models = normalizeSelfHostedCatalog({
+    data: [
+      {
+        id: 'llama3.2:3b',
+        name: 'Llama 3.2 3B',
+        owned_by: 'ollama',
+      },
+    ],
+  });
+
+  assert.equal(models.length, 1);
+  assert.equal(models[0]?.id, 'llama3.2:3b');
+  assert.equal(models[0]?.description, '提供元: ollama');
+  assert.equal(models[0]?.supportsStructuredOutput, false);
+});
+
+test('getSelfHostedApiKey falls back to ollama', () => {
+  assert.equal(getSelfHostedApiKey(), 'ollama');
+});
+
 test('toMastraModelId prefixes provider name', () => {
   assert.equal(
     toMastraModelId({
@@ -72,5 +96,13 @@ test('toMastraModelId prefixes provider name', () => {
       modelId: 'openai/gpt-5-mini',
     }),
     'openrouter/openai/gpt-5-mini',
+  );
+
+  assert.equal(
+    toMastraModelId({
+      provider: 'selfhosted',
+      modelId: 'llama3.2:3b',
+    }),
+    'selfhosted/local/llama3.2:3b',
   );
 });

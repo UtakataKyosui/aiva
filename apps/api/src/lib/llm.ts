@@ -1,18 +1,20 @@
 import {
-  llmCatalogResponseSchema,
-  llmModelOptionSchema,
-  llmProviderSchema,
-  userLlmSettingsInputSchema,
   type LlmCatalogResponse,
   type LlmModelOption,
   type LlmProvider,
+  llmCatalogResponseSchema,
+  llmModelOptionSchema,
+  llmProviderSchema,
   type UserLlmSettingsInput,
+  userLlmSettingsInputSchema,
 } from '@aiva/shared';
 import { z } from 'zod';
 import { env } from '../env.js';
 
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models/user';
-const OPENROUTER_CACHE_TTL_MS = 1000 * 60 * 5;
+const SELF_HOSTED_PROVIDER_ID = 'local';
+const SELF_HOSTED_DEFAULT_API_KEY = 'ollama';
+const MODEL_CACHE_TTL_MS = 1000 * 60 * 5;
 
 const openAiModelOptions = [
   {
@@ -45,7 +47,11 @@ const openAiModelOptions = [
   },
 ] satisfies LlmModelOption[];
 
-const preferredOpenRouterModels = ['openai/gpt-5-mini', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini'];
+const preferredOpenRouterModels = [
+  'openai/gpt-5-mini',
+  'openai/gpt-4.1-mini',
+  'openai/gpt-4o-mini',
+];
 
 const openRouterCatalogResponseSchema = z.object({
   data: z.array(
@@ -66,12 +72,27 @@ const openRouterCatalogResponseSchema = z.object({
   ),
 });
 
-let openRouterCache:
-  | {
-      expiresAt: number;
-      catalog: LlmCatalogResponse;
-    }
-  | null = null;
+const selfHostedCatalogResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string().nullable().optional(),
+      owned_by: z.string().nullable().optional(),
+      context_length: z.coerce.number().nullable().optional(),
+    }),
+  ),
+});
+
+let openRouterCache: {
+  expiresAt: number;
+  catalog: LlmCatalogResponse;
+} | null = null;
+
+let selfHostedCache: {
+  baseUrl: string;
+  expiresAt: number;
+  catalog: LlmCatalogResponse;
+} | null = null;
 
 const createUnavailableCatalog = (
   provider: LlmProvider,
@@ -86,7 +107,9 @@ const createUnavailableCatalog = (
   });
 };
 
-const supportsTextIo = (model: z.infer<typeof openRouterCatalogResponseSchema.shape.data.element>) => {
+const supportsTextIo = (
+  model: z.infer<typeof openRouterCatalogResponseSchema.shape.data.element>,
+) => {
   const inputModalities = model.architecture?.input_modalities ?? [];
   const outputModalities = model.architecture?.output_modalities ?? [];
 
@@ -102,8 +125,36 @@ const supportsStructuredOutput = (
   const parameters = supportedParameters ?? [];
 
   return parameters.some((parameter) =>
-    ['response_format', 'structured_outputs', 'json_schema'].includes(parameter),
+    ['response_format', 'structured_outputs', 'json_schema'].includes(
+      parameter,
+    ),
   );
+};
+
+const ensureTrailingSlash = (value: string) => {
+  return value.endsWith('/') ? value : `${value}/`;
+};
+
+export const getSelfHostedProviderName = () => {
+  return env.LOCAL_LLM_PROVIDER_NAME ?? 'ローカル / サーバ LLM';
+};
+
+export const getSelfHostedBaseUrl = () => {
+  return env.LOCAL_LLM_BASE_URL?.replace(/\/+$/, '') ?? null;
+};
+
+export const getSelfHostedApiKey = () => {
+  return env.LOCAL_LLM_API_KEY ?? SELF_HOSTED_DEFAULT_API_KEY;
+};
+
+const getSelfHostedModelsUrl = () => {
+  const baseUrl = getSelfHostedBaseUrl();
+
+  if (!baseUrl) {
+    return null;
+  }
+
+  return new URL('models', ensureTrailingSlash(baseUrl)).toString();
 };
 
 export const normalizeOpenRouterCatalog = (payload: unknown) => {
@@ -117,10 +168,26 @@ export const normalizeOpenRouterCatalog = (payload: unknown) => {
         name: model.name?.trim() || model.id,
         description: model.description?.trim() || null,
         contextLength: model.context_length ?? null,
-        supportsStructuredOutput: supportsStructuredOutput(model.supported_parameters),
+        supportsStructuredOutput: supportsStructuredOutput(
+          model.supported_parameters,
+        ),
       }),
     )
     .sort((left, right) => left.name.localeCompare(right.name, 'ja'));
+};
+
+export const normalizeSelfHostedCatalog = (payload: unknown) => {
+  const parsed = selfHostedCatalogResponseSchema.parse(payload);
+
+  return parsed.data.map((model) =>
+    llmModelOptionSchema.parse({
+      id: model.id,
+      name: model.name?.trim() || model.id,
+      description: model.owned_by ? `提供元: ${model.owned_by}` : null,
+      contextLength: model.context_length ?? null,
+      supportsStructuredOutput: false,
+    }),
+  );
 };
 
 export const getPreferredOpenRouterModelId = (models: LlmModelOption[]) => {
@@ -131,8 +198,19 @@ export const getPreferredOpenRouterModelId = (models: LlmModelOption[]) => {
   return preferred ?? models[0]?.id ?? preferredOpenRouterModels[0];
 };
 
+export const getPreferredSelfHostedModelId = (models: LlmModelOption[]) => {
+  return models[0]?.id ?? '';
+};
+
 export const isProviderConfigured = (provider: LlmProvider) => {
-  return provider === 'openai' ? Boolean(env.OPENAI_API_KEY) : Boolean(env.OPENROUTER_API_KEY);
+  switch (provider) {
+    case 'openai':
+      return Boolean(env.OPENAI_API_KEY);
+    case 'openrouter':
+      return Boolean(env.OPENROUTER_API_KEY);
+    case 'selfhosted':
+      return Boolean(getSelfHostedBaseUrl());
+  }
 };
 
 export const getOpenAiModelCatalog = () => {
@@ -146,7 +224,10 @@ export const getOpenAiModelCatalog = () => {
 
 export const getOpenRouterModelCatalog = async () => {
   if (!env.OPENROUTER_API_KEY) {
-    return createUnavailableCatalog('openrouter', 'OPENROUTER_API_KEY が未設定です。');
+    return createUnavailableCatalog(
+      'openrouter',
+      'OPENROUTER_API_KEY が未設定です。',
+    );
   }
 
   if (openRouterCache && openRouterCache.expiresAt > Date.now()) {
@@ -164,7 +245,9 @@ export const getOpenRouterModelCatalog = async () => {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenRouter model catalog request failed with status ${response.status}.`);
+    throw new Error(
+      `OpenRouter model catalog request failed with status ${response.status}.`,
+    );
   }
 
   const models = normalizeOpenRouterCatalog(await response.json());
@@ -183,38 +266,123 @@ export const getOpenRouterModelCatalog = async () => {
 
   openRouterCache = {
     catalog,
-    expiresAt: Date.now() + OPENROUTER_CACHE_TTL_MS,
+    expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
   };
 
   return catalog;
 };
 
-export const getModelCatalog = async (provider: LlmProvider) => {
-  return provider === 'openai' ? getOpenAiModelCatalog() : getOpenRouterModelCatalog();
+export const getSelfHostedModelCatalog = async () => {
+  const modelsUrl = getSelfHostedModelsUrl();
+
+  if (!modelsUrl) {
+    return createUnavailableCatalog(
+      'selfhosted',
+      'LOCAL_LLM_BASE_URL が未設定です。',
+    );
+  }
+
+  const baseUrl = getSelfHostedBaseUrl();
+
+  if (
+    selfHostedCache &&
+    baseUrl &&
+    selfHostedCache.baseUrl === baseUrl &&
+    selfHostedCache.expiresAt > Date.now()
+  ) {
+    return selfHostedCache.catalog;
+  }
+
+  const response = await fetch(modelsUrl, {
+    headers: {
+      Authorization: `Bearer ${getSelfHostedApiKey()}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `${getSelfHostedProviderName()} model catalog request failed with status ${response.status}.`,
+    );
+  }
+
+  const models = normalizeSelfHostedCatalog(await response.json());
+  const catalog =
+    models.length > 0
+      ? llmCatalogResponseSchema.parse({
+          provider: 'selfhosted',
+          available: true,
+          reason: `${getSelfHostedProviderName()} からモデル一覧を取得しました。`,
+          models,
+        })
+      : createUnavailableCatalog(
+          'selfhosted',
+          `${getSelfHostedProviderName()} で利用可能なモデルが見つかりませんでした。`,
+        );
+
+  if (baseUrl) {
+    selfHostedCache = {
+      baseUrl,
+      catalog,
+      expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
+    };
+  }
+
+  return catalog;
 };
 
-export const getDefaultLlmSettings = async (): Promise<UserLlmSettingsInput> => {
-  if (env.OPENAI_API_KEY) {
+export const getModelCatalog = async (provider: LlmProvider) => {
+  switch (provider) {
+    case 'openai':
+      return getOpenAiModelCatalog();
+    case 'openrouter':
+      return getOpenRouterModelCatalog();
+    case 'selfhosted':
+      return getSelfHostedModelCatalog();
+  }
+};
+
+export const getDefaultLlmSettings =
+  async (): Promise<UserLlmSettingsInput> => {
+    if (getSelfHostedBaseUrl()) {
+      try {
+        const catalog = await getSelfHostedModelCatalog();
+
+        if (catalog.available && catalog.models.length > 0) {
+          return {
+            provider: 'selfhosted',
+            modelId: getPreferredSelfHostedModelId(catalog.models),
+          };
+        }
+      } catch (error) {
+        console.warn(
+          'Failed to resolve self-hosted model catalog while choosing default LLM settings.',
+          error,
+        );
+      }
+    }
+
+    if (env.OPENAI_API_KEY) {
+      return {
+        provider: 'openai',
+        modelId: openAiModelOptions[0].id,
+      };
+    }
+
+    if (env.OPENROUTER_API_KEY) {
+      const catalog = await getOpenRouterModelCatalog();
+
+      return {
+        provider: 'openrouter',
+        modelId: getPreferredOpenRouterModelId(catalog.models),
+      };
+    }
+
     return {
       provider: 'openai',
       modelId: openAiModelOptions[0].id,
     };
-  }
-
-  if (env.OPENROUTER_API_KEY) {
-    const catalog = await getOpenRouterModelCatalog();
-
-    return {
-      provider: 'openrouter',
-      modelId: getPreferredOpenRouterModelId(catalog.models),
-    };
-  }
-
-  return {
-    provider: 'openai',
-    modelId: openAiModelOptions[0].id,
   };
-};
 
 export const resolveStoredLlmSettings = async (
   settings: UserLlmSettingsInput | null,
@@ -243,9 +411,24 @@ export const validateLlmSettings = async (settings: UserLlmSettingsInput) => {
 
 export const toMastraModelId = (settings: UserLlmSettingsInput) => {
   const parsed = userLlmSettingsInputSchema.parse(settings);
-  return `${parsed.provider}/${parsed.modelId}`;
+
+  switch (parsed.provider) {
+    case 'openai':
+      return `openai/${parsed.modelId}`;
+    case 'openrouter':
+      return `openrouter/${parsed.modelId}`;
+    case 'selfhosted':
+      return `selfhosted/${SELF_HOSTED_PROVIDER_ID}/${parsed.modelId}`;
+  }
 };
 
 export const providerLabel = (provider: LlmProvider) => {
-  return llmProviderSchema.parse(provider) === 'openrouter' ? 'OpenRouter' : 'OpenAI';
+  switch (llmProviderSchema.parse(provider)) {
+    case 'openai':
+      return 'OpenAI';
+    case 'openrouter':
+      return 'OpenRouter';
+    case 'selfhosted':
+      return getSelfHostedProviderName();
+  }
 };

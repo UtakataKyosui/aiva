@@ -3,8 +3,9 @@ import {
   llmProviderSchema,
   userLlmSettingsInputSchema,
 } from '@aiva/shared';
-import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { RequestContext } from '@mastra/core/request-context';
+import { createStep, createWorkflow } from '@mastra/core/workflows';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/client.js';
 import {
@@ -20,9 +21,11 @@ import {
   generatedMealPlanSchema,
   rankIngredients,
 } from '../../domain/suggestions.js';
-import { resolveStoredLlmSettings, validateLlmSettings } from '../../lib/llm.js';
+import {
+  resolveStoredLlmSettings,
+  validateLlmSettings,
+} from '../../lib/llm.js';
 import { mealSuggestionAgent } from '../agents/meal-suggestion-agent.js';
-import { and, desc, eq, gte } from 'drizzle-orm';
 
 const workflowInputSchema = z.object({
   userId: z.string(),
@@ -80,41 +83,43 @@ const collectUserContext = createStep({
     const dateFrom = new Date(`${inputData.suggestionDate}T00:00:00+09:00`);
     dateFrom.setDate(dateFrom.getDate() - 7);
 
-    const [ingredientRows, mealRows, preferenceRow, llmRow] = await Promise.all([
-      db
-        .select({
-          id: ingredients.id,
-          name: ingredients.name,
-          category: ingredients.category,
-          quantity: ingredients.quantity,
-          unit: ingredients.unit,
-          expiresOn: ingredients.expiresOn,
-        })
-        .from(ingredients)
-        .where(eq(ingredients.userId, inputData.userId)),
-      db
-        .select({
-          id: mealLogs.id,
-          consumedOn: mealLogs.consumedOn,
-          mealType: mealLogs.mealType,
-          menuName: mealLogs.menuName,
-          satisfaction: mealLogs.satisfaction,
-        })
-        .from(mealLogs)
-        .where(
-          and(
-            eq(mealLogs.userId, inputData.userId),
-            gte(mealLogs.consumedOn, dateFrom.toISOString().slice(0, 10)),
-          ),
-        )
-        .orderBy(desc(mealLogs.consumedOn)),
-      db.query.userPreferences.findFirst({
-        where: eq(userPreferences.userId, inputData.userId),
-      }),
-      db.query.userLlmSettings.findFirst({
-        where: eq(userLlmSettings.userId, inputData.userId),
-      }),
-    ]);
+    const [ingredientRows, mealRows, preferenceRow, llmRow] = await Promise.all(
+      [
+        db
+          .select({
+            id: ingredients.id,
+            name: ingredients.name,
+            category: ingredients.category,
+            quantity: ingredients.quantity,
+            unit: ingredients.unit,
+            expiresOn: ingredients.expiresOn,
+          })
+          .from(ingredients)
+          .where(eq(ingredients.userId, inputData.userId)),
+        db
+          .select({
+            id: mealLogs.id,
+            consumedOn: mealLogs.consumedOn,
+            mealType: mealLogs.mealType,
+            menuName: mealLogs.menuName,
+            satisfaction: mealLogs.satisfaction,
+          })
+          .from(mealLogs)
+          .where(
+            and(
+              eq(mealLogs.userId, inputData.userId),
+              gte(mealLogs.consumedOn, dateFrom.toISOString().slice(0, 10)),
+            ),
+          )
+          .orderBy(desc(mealLogs.consumedOn)),
+        db.query.userPreferences.findFirst({
+          where: eq(userPreferences.userId, inputData.userId),
+        }),
+        db.query.userLlmSettings.findFirst({
+          where: eq(userLlmSettings.userId, inputData.userId),
+        }),
+      ],
+    );
 
     const llm = await resolveStoredLlmSettings(
       llmRow
@@ -155,7 +160,10 @@ const scoreIngredients = createStep({
   outputSchema: prioritizedContextSchema,
   execute: async ({ inputData }) => {
     const priorities = rankIngredients(inputData);
-    const { prompt, recentPattern } = buildSuggestionPrompt(inputData, priorities);
+    const { prompt, recentPattern } = buildSuggestionPrompt(
+      inputData,
+      priorities,
+    );
 
     return {
       ...inputData,
@@ -171,13 +179,20 @@ const generateSuggestion = createStep({
   inputSchema: prioritizedContextSchema,
   outputSchema: persistedSuggestionSchema,
   execute: async ({ inputData }) => {
-    const validationError = await validateLlmSettings(inputData.llm).catch((error) =>
-      error instanceof Error ? error.message : 'モデル設定の検証に失敗しました。',
+    const validationError = await validateLlmSettings(inputData.llm).catch(
+      (error) =>
+        error instanceof Error
+          ? error.message
+          : 'モデル設定の検証に失敗しました。',
     );
 
     if (validationError) {
       return {
-        ...createFallbackSuggestion(inputData, inputData.priorities, validationError),
+        ...createFallbackSuggestion(
+          inputData,
+          inputData.priorities,
+          validationError,
+        ),
         userId: inputData.userId,
         prompt: inputData.prompt,
       };
@@ -185,7 +200,7 @@ const generateSuggestion = createStep({
 
     try {
       const requestContext = new RequestContext<{
-        llmProvider: 'openai' | 'openrouter';
+        llmProvider: 'openai' | 'openrouter' | 'selfhosted';
         llmModelId: string;
       }>();
       requestContext.set('llmProvider', inputData.llm.provider);
@@ -198,7 +213,9 @@ const generateSuggestion = createStep({
           jsonPromptInjection: true,
         },
       });
-      const generatedObject = response.object as z.infer<typeof generatedMealPlanSchema> | undefined;
+      const generatedObject = response.object as
+        | z.infer<typeof generatedMealPlanSchema>
+        | undefined;
 
       if (!generatedObject) {
         return {
@@ -229,7 +246,9 @@ const generateSuggestion = createStep({
         ...createFallbackSuggestion(
           inputData,
           inputData.priorities,
-          error instanceof Error ? error.message : 'LLM 呼び出しに失敗しました。',
+          error instanceof Error
+            ? error.message
+            : 'LLM 呼び出しに失敗しました。',
         ),
         userId: inputData.userId,
         prompt: inputData.prompt,

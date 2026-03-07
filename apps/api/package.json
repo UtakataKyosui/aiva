@@ -16,6 +16,7 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible-v5": "npm:@ai-sdk/openai-compatible@1.0.32",
     "@aiva/shared": "workspace:*",
     "@hono/node-server": "^1.14.4",
     "@mastra/core": "^1.10.0",

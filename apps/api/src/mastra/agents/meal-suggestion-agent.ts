@@ -1,6 +1,11 @@
-import { llmProviderSchema, type LlmProvider, suggestionMealSchema } from '@aiva/shared';
+import {
+  type LlmProvider,
+  llmProviderSchema,
+  suggestionMealSchema,
+} from '@aiva/shared';
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
+import { toMastraModelId } from '../../lib/llm.js';
 
 export const mealSuggestionObjectSchema = z.object({
   meals: z.array(suggestionMealSchema).min(1).max(3),
@@ -27,8 +32,11 @@ export const mealSuggestionAgent = new Agent({
 `,
   requestContextSchema: llmRequestContextSchema,
   model: ({ requestContext }) => {
-    const provider = (requestContext.get('llmProvider') as LlmProvider | undefined) ?? 'openai';
-    const modelId = (requestContext.get('llmModelId') as string | undefined) ?? 'gpt-5-mini';
-    return `${provider}/${modelId}`;
+    const provider =
+      (requestContext.get('llmProvider') as LlmProvider | undefined) ??
+      'openai';
+    const modelId =
+      (requestContext.get('llmModelId') as string | undefined) ?? 'gpt-5-mini';
+    return toMastraModelId({ provider, modelId });
   },
 });

@@ -1,7 +1,7 @@
 # Aiva
 
 Mastra を使って「登録済みの食材」「最近の食事記録」「個人条件」から当日の食事サジェストを生成する生活支援アプリです。  
-Google ログイン後、ユーザーごとに `OpenAI` または `OpenRouter` の provider / model を切り替えて提案生成に使えます。
+Google ログイン後、ユーザーごとに `OpenAI` / `OpenRouter` / ローカルまたは自己ホストの `OpenAI-compatible` LLM を切り替えて提案生成に使えます。
 
 ## Workspace
 
@@ -26,7 +26,8 @@ pnpm install
 cp .env.example .env
 ```
 
-`OPENAI_API_KEY` と `OPENROUTER_API_KEY` は両対応です。どちらか片方だけでも起動できますが、使いたい provider に対応するキーは設定してください。
+`OPENAI_API_KEY` と `OPENROUTER_API_KEY` は両対応です。どちらか片方だけでも起動できます。  
+ローカル LLM を使う場合は `LOCAL_LLM_BASE_URL` に OpenAI-compatible エンドポイントを指定してください。既定値は Ollama の `http://127.0.0.1:11434/v1` です。`LOCAL_LLM_API_KEY` は未設定でも動きますが、OpenAI 互換クライアント用に既定で `ollama` を使います。
 
 3. PostgreSQL を起動
 
@@ -57,6 +58,7 @@ pnpm dev
 
 - `OpenAI`: アプリ内の固定候補から選択
 - `OpenRouter`: サーバー側の `OPENROUTER_API_KEY` を使って取得したモデル一覧から選択
+- `ローカル / サーバ LLM`: `LOCAL_LLM_BASE_URL` の `/models` から取得したモデル一覧から選択
 
 ## Ports
 

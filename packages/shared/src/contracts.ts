@@ -27,7 +27,7 @@ export const quantityUnits = [
 ] as const;
 
 export const mealTypes = ['朝食', '昼食', '夕食', '間食'] as const;
-export const llmProviders = ['openai', 'openrouter'] as const;
+export const llmProviders = ['openai', 'openrouter', 'selfhosted'] as const;
 
 export const ingredientInputSchema = z.object({
   name: z.string().min(1, '食材名は必須です'),
@@ -134,4 +134,6 @@ export type UserLlmSettingsInput = z.infer<typeof userLlmSettingsInputSchema>;
 export type UserLlmSettingsRecord = z.infer<typeof userLlmSettingsRecordSchema>;
 export type LlmModelOption = z.infer<typeof llmModelOptionSchema>;
 export type LlmCatalogResponse = z.infer<typeof llmCatalogResponseSchema>;
-export type DailySuggestionResponse = z.infer<typeof dailySuggestionResponseSchema>;
+export type DailySuggestionResponse = z.infer<
+  typeof dailySuggestionResponseSchema
+>;
