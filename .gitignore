@@ -6,6 +6,12 @@
 # Dist
 node_modules
 dist/
+.moon/cache
+.moon/docker
+.pnpm-store
+apps/api/dist
+apps/web/dist
+apps/api/.mastra
 
 # Profile
 .rspack-profile-*/
@@ -14,3 +20,6 @@ dist/
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# Env
+.env
