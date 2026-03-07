@@ -65,7 +65,7 @@ export const mealLogRecordSchema = mealLogInputSchema.extend({
 export const userPreferencesInputSchema = z.object({
   allergies: z.array(z.string().min(1)).max(20),
   dislikes: z.array(z.string().min(1)).max(30),
-  note: z.string().max(500).nullable(),
+  notes: z.array(z.string().min(1)).max(30),
 });
 
 export const userPreferencesRecordSchema = userPreferencesInputSchema.extend({
@@ -75,13 +75,39 @@ export const userPreferencesRecordSchema = userPreferencesInputSchema.extend({
 
 export const llmProviderSchema = z.enum(llmProviders);
 
-export const userLlmSettingsInputSchema = z.object({
+export const llmSelectionSchema = z.object({
   provider: llmProviderSchema,
   modelId: z.string().min(1, 'モデルIDは必須です'),
 });
 
-export const userLlmSettingsRecordSchema = userLlmSettingsInputSchema.extend({
+export const llmCredentialSourceSchema = z.enum(['user', 'server', 'none']);
+
+export const llmCredentialStatusSchema = z.object({
+  configured: z.boolean(),
+  source: llmCredentialSourceSchema,
+  keyHint: z.string().nullable(),
+});
+
+export const llmCredentialStatusMapSchema = z.object({
+  openai: llmCredentialStatusSchema,
+  openrouter: llmCredentialStatusSchema,
+});
+
+export const userLlmSettingsInputSchema = llmSelectionSchema;
+
+export const userLlmSettingsUpdateInputSchema = llmSelectionSchema.extend({
+  apiKey: z
+    .string()
+    .min(1, 'APIキーは1文字以上で入力してください')
+    .max(500)
+    .nullable()
+    .optional(),
+  clearStoredApiKey: z.boolean().optional(),
+});
+
+export const userLlmSettingsRecordSchema = llmSelectionSchema.extend({
   updatedAt: z.string().nullable(),
+  credentialStatus: llmCredentialStatusMapSchema,
 });
 
 export const llmModelOptionSchema = z.object({
@@ -97,6 +123,16 @@ export const llmCatalogResponseSchema = z.object({
   available: z.boolean(),
   reason: z.string().nullable(),
   models: z.array(llmModelOptionSchema),
+});
+
+export const llmCatalogPreviewInputSchema = z.object({
+  provider: llmProviderSchema,
+  apiKey: z
+    .string()
+    .min(1, 'APIキーは1文字以上で入力してください')
+    .max(500)
+    .nullable()
+    .optional(),
 });
 
 export const prioritizedIngredientSchema = z.object({
@@ -116,7 +152,7 @@ export const suggestionMealSchema = z.object({
 export const dailySuggestionResponseSchema = z.object({
   suggestionDate: z.string(),
   generatedAt: z.string(),
-  llm: userLlmSettingsInputSchema.nullable().optional(),
+  llm: llmSelectionSchema.nullable().optional(),
   priorities: z.array(prioritizedIngredientSchema),
   recentPattern: z.string(),
   meals: z.array(suggestionMealSchema).min(1),
@@ -130,8 +166,21 @@ export type MealLogRecord = z.infer<typeof mealLogRecordSchema>;
 export type UserPreferencesInput = z.infer<typeof userPreferencesInputSchema>;
 export type UserPreferencesRecord = z.infer<typeof userPreferencesRecordSchema>;
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
+export type LlmSelection = z.infer<typeof llmSelectionSchema>;
 export type UserLlmSettingsInput = z.infer<typeof userLlmSettingsInputSchema>;
+export type UserLlmSettingsUpdateInput = z.infer<
+  typeof userLlmSettingsUpdateInputSchema
+>;
 export type UserLlmSettingsRecord = z.infer<typeof userLlmSettingsRecordSchema>;
+export type LlmCredentialStatus = z.infer<typeof llmCredentialStatusSchema>;
+export type LlmCredentialStatusMap = z.infer<
+  typeof llmCredentialStatusMapSchema
+>;
 export type LlmModelOption = z.infer<typeof llmModelOptionSchema>;
 export type LlmCatalogResponse = z.infer<typeof llmCatalogResponseSchema>;
-export type DailySuggestionResponse = z.infer<typeof dailySuggestionResponseSchema>;
+export type LlmCatalogPreviewInput = z.infer<
+  typeof llmCatalogPreviewInputSchema
+>;
+export type DailySuggestionResponse = z.infer<
+  typeof dailySuggestionResponseSchema
+>;

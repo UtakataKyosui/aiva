@@ -1,15 +1,19 @@
+import { createHash } from 'node:crypto';
 import {
-  llmCatalogResponseSchema,
-  llmModelOptionSchema,
-  llmProviderSchema,
-  userLlmSettingsInputSchema,
   type LlmCatalogResponse,
+  type LlmCredentialStatusMap,
   type LlmModelOption,
   type LlmProvider,
+  llmCatalogResponseSchema,
+  llmCredentialStatusMapSchema,
+  llmModelOptionSchema,
+  llmProviderSchema,
   type UserLlmSettingsInput,
+  userLlmSettingsInputSchema,
 } from '@aiva/shared';
 import { z } from 'zod';
 import { env } from '../env.js';
+import { decryptSecret, encryptSecret } from './secret-box.js';
 
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models/user';
 const OPENROUTER_CACHE_TTL_MS = 1000 * 60 * 5;
@@ -45,7 +49,11 @@ const openAiModelOptions = [
   },
 ] satisfies LlmModelOption[];
 
-const preferredOpenRouterModels = ['openai/gpt-5-mini', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini'];
+const preferredOpenRouterModels = [
+  'openai/gpt-5-mini',
+  'openai/gpt-4.1-mini',
+  'openai/gpt-4o-mini',
+];
 
 const openRouterCatalogResponseSchema = z.object({
   data: z.array(
@@ -66,12 +74,25 @@ const openRouterCatalogResponseSchema = z.object({
   ),
 });
 
-let openRouterCache:
-  | {
-      expiresAt: number;
-      catalog: LlmCatalogResponse;
-    }
-  | null = null;
+const storedProviderKeySchema = z.object({
+  ciphertext: z.string().min(1),
+  lastFour: z.string().min(1),
+});
+
+const providerKeyStoreSchema = z.object({
+  openai: storedProviderKeySchema.optional(),
+  openrouter: storedProviderKeySchema.optional(),
+});
+
+type ProviderKeyStore = z.infer<typeof providerKeyStoreSchema>;
+
+const openRouterCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    catalog: LlmCatalogResponse;
+  }
+>();
 
 const createUnavailableCatalog = (
   provider: LlmProvider,
@@ -86,7 +107,9 @@ const createUnavailableCatalog = (
   });
 };
 
-const supportsTextIo = (model: z.infer<typeof openRouterCatalogResponseSchema.shape.data.element>) => {
+const supportsTextIo = (
+  model: z.infer<typeof openRouterCatalogResponseSchema.shape.data.element>,
+) => {
   const inputModalities = model.architecture?.input_modalities ?? [];
   const outputModalities = model.architecture?.output_modalities ?? [];
 
@@ -102,8 +125,32 @@ const supportsStructuredOutput = (
   const parameters = supportedParameters ?? [];
 
   return parameters.some((parameter) =>
-    ['response_format', 'structured_outputs', 'json_schema'].includes(parameter),
+    ['response_format', 'structured_outputs', 'json_schema'].includes(
+      parameter,
+    ),
   );
+};
+
+const getOpenRouterCacheKey = (apiKey: string) => {
+  return createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
+};
+
+const normalizeProviderKeys = (providerKeys: unknown): ProviderKeyStore => {
+  return providerKeyStoreSchema.parse(providerKeys ?? {});
+};
+
+const getServerApiKey = (provider: LlmProvider) => {
+  return provider === 'openai'
+    ? (env.OPENAI_API_KEY ?? null)
+    : (env.OPENROUTER_API_KEY ?? null);
+};
+
+const getStoredProviderKey = (providerKeys: unknown, provider: LlmProvider) => {
+  return normalizeProviderKeys(providerKeys)[provider] ?? null;
+};
+
+const maskKeyHint = (lastFour: string) => {
+  return `••••${lastFour}`;
 };
 
 export const normalizeOpenRouterCatalog = (payload: unknown) => {
@@ -117,7 +164,9 @@ export const normalizeOpenRouterCatalog = (payload: unknown) => {
         name: model.name?.trim() || model.id,
         description: model.description?.trim() || null,
         contextLength: model.context_length ?? null,
-        supportsStructuredOutput: supportsStructuredOutput(model.supported_parameters),
+        supportsStructuredOutput: supportsStructuredOutput(
+          model.supported_parameters,
+        ),
       }),
     )
     .sort((left, right) => left.name.localeCompare(right.name, 'ja'));
@@ -131,31 +180,113 @@ export const getPreferredOpenRouterModelId = (models: LlmModelOption[]) => {
   return preferred ?? models[0]?.id ?? preferredOpenRouterModels[0];
 };
 
-export const isProviderConfigured = (provider: LlmProvider) => {
-  return provider === 'openai' ? Boolean(env.OPENAI_API_KEY) : Boolean(env.OPENROUTER_API_KEY);
+export const withStoredProviderApiKey = (
+  providerKeys: unknown,
+  provider: LlmProvider,
+  apiKey: string,
+) => {
+  const trimmedApiKey = apiKey.trim();
+
+  if (!trimmedApiKey) {
+    return normalizeProviderKeys(providerKeys);
+  }
+
+  return providerKeyStoreSchema.parse({
+    ...normalizeProviderKeys(providerKeys),
+    [provider]: {
+      ciphertext: encryptSecret(trimmedApiKey),
+      lastFour: trimmedApiKey.slice(-4),
+    },
+  });
 };
 
-export const getOpenAiModelCatalog = () => {
+export const withoutStoredProviderApiKey = (
+  providerKeys: unknown,
+  provider: LlmProvider,
+) => {
+  const nextKeys = { ...normalizeProviderKeys(providerKeys) };
+  delete nextKeys[provider];
+  return providerKeyStoreSchema.parse(nextKeys);
+};
+
+export const resolveProviderApiKey = (
+  provider: LlmProvider,
+  providerKeys?: unknown,
+) => {
+  const storedKey = getStoredProviderKey(providerKeys, provider);
+
+  if (storedKey) {
+    return decryptSecret(storedKey.ciphertext);
+  }
+
+  return getServerApiKey(provider);
+};
+
+export const buildCredentialStatusMap = (
+  providerKeys?: unknown,
+): LlmCredentialStatusMap => {
+  const normalizedKeys = normalizeProviderKeys(providerKeys);
+
+  return llmCredentialStatusMapSchema.parse({
+    openai: normalizedKeys.openai
+      ? {
+          configured: true,
+          source: 'user',
+          keyHint: maskKeyHint(normalizedKeys.openai.lastFour),
+        }
+      : {
+          configured: Boolean(getServerApiKey('openai')),
+          source: getServerApiKey('openai') ? 'server' : 'none',
+          keyHint: null,
+        },
+    openrouter: normalizedKeys.openrouter
+      ? {
+          configured: true,
+          source: 'user',
+          keyHint: maskKeyHint(normalizedKeys.openrouter.lastFour),
+        }
+      : {
+          configured: Boolean(getServerApiKey('openrouter')),
+          source: getServerApiKey('openrouter') ? 'server' : 'none',
+          keyHint: null,
+        },
+  });
+};
+
+export const getOpenAiModelCatalog = (options?: { apiKey?: string | null }) => {
+  const effectiveApiKey = options?.apiKey?.trim() || getServerApiKey('openai');
+
   return llmCatalogResponseSchema.parse({
     provider: 'openai',
-    available: Boolean(env.OPENAI_API_KEY),
-    reason: env.OPENAI_API_KEY ? null : 'OPENAI_API_KEY が未設定です。',
+    available: Boolean(effectiveApiKey),
+    reason: effectiveApiKey ? null : 'OpenAI のAPIキーが未設定です。',
     models: openAiModelOptions,
   });
 };
 
-export const getOpenRouterModelCatalog = async () => {
-  if (!env.OPENROUTER_API_KEY) {
-    return createUnavailableCatalog('openrouter', 'OPENROUTER_API_KEY が未設定です。');
+export const getOpenRouterModelCatalog = async (options?: {
+  apiKey?: string | null;
+}) => {
+  const effectiveApiKey =
+    options?.apiKey?.trim() || getServerApiKey('openrouter');
+
+  if (!effectiveApiKey) {
+    return createUnavailableCatalog(
+      'openrouter',
+      'OpenRouter のAPIキーが未設定です。',
+    );
   }
 
-  if (openRouterCache && openRouterCache.expiresAt > Date.now()) {
-    return openRouterCache.catalog;
+  const cacheKey = getOpenRouterCacheKey(effectiveApiKey);
+  const cached = openRouterCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.catalog;
   }
 
   const response = await fetch(OPENROUTER_MODELS_URL, {
     headers: {
-      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      Authorization: `Bearer ${effectiveApiKey}`,
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'HTTP-Referer': env.WEB_ORIGIN,
@@ -164,7 +295,9 @@ export const getOpenRouterModelCatalog = async () => {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenRouter model catalog request failed with status ${response.status}.`);
+    throw new Error(
+      `OpenRouter model catalog request failed with status ${response.status}.`,
+    );
   }
 
   const models = normalizeOpenRouterCatalog(await response.json());
@@ -181,28 +314,39 @@ export const getOpenRouterModelCatalog = async () => {
           '利用可能なテキスト出力モデルが見つかりませんでした。',
         );
 
-  openRouterCache = {
+  openRouterCache.set(cacheKey, {
     catalog,
     expiresAt: Date.now() + OPENROUTER_CACHE_TTL_MS,
-  };
+  });
 
   return catalog;
 };
 
-export const getModelCatalog = async (provider: LlmProvider) => {
-  return provider === 'openai' ? getOpenAiModelCatalog() : getOpenRouterModelCatalog();
+export const getModelCatalog = async (
+  provider: LlmProvider,
+  options?: {
+    apiKey?: string | null;
+  },
+) => {
+  return provider === 'openai'
+    ? getOpenAiModelCatalog(options)
+    : getOpenRouterModelCatalog(options);
 };
 
-export const getDefaultLlmSettings = async (): Promise<UserLlmSettingsInput> => {
-  if (env.OPENAI_API_KEY) {
+export const getDefaultLlmSettings = async (options?: {
+  providerKeys?: unknown;
+}): Promise<UserLlmSettingsInput> => {
+  if (resolveProviderApiKey('openai', options?.providerKeys)) {
     return {
       provider: 'openai',
       modelId: openAiModelOptions[0].id,
     };
   }
 
-  if (env.OPENROUTER_API_KEY) {
-    const catalog = await getOpenRouterModelCatalog();
+  if (resolveProviderApiKey('openrouter', options?.providerKeys)) {
+    const catalog = await getOpenRouterModelCatalog({
+      apiKey: resolveProviderApiKey('openrouter', options?.providerKeys),
+    });
 
     return {
       provider: 'openrouter',
@@ -218,17 +362,25 @@ export const getDefaultLlmSettings = async (): Promise<UserLlmSettingsInput> => 
 
 export const resolveStoredLlmSettings = async (
   settings: UserLlmSettingsInput | null,
+  options?: {
+    providerKeys?: unknown;
+  },
 ): Promise<UserLlmSettingsInput> => {
   if (settings) {
     return userLlmSettingsInputSchema.parse(settings);
   }
 
-  return getDefaultLlmSettings();
+  return getDefaultLlmSettings(options);
 };
 
-export const validateLlmSettings = async (settings: UserLlmSettingsInput) => {
+export const validateLlmSettings = async (
+  settings: UserLlmSettingsInput,
+  options?: {
+    apiKey?: string | null;
+  },
+) => {
   const parsed = userLlmSettingsInputSchema.parse(settings);
-  const catalog = await getModelCatalog(parsed.provider);
+  const catalog = await getModelCatalog(parsed.provider, options);
 
   if (!catalog.available) {
     return catalog.reason ?? `${parsed.provider} は現在利用できません。`;
@@ -247,5 +399,7 @@ export const toMastraModelId = (settings: UserLlmSettingsInput) => {
 };
 
 export const providerLabel = (provider: LlmProvider) => {
-  return llmProviderSchema.parse(provider) === 'openrouter' ? 'OpenRouter' : 'OpenAI';
+  return llmProviderSchema.parse(provider) === 'openrouter'
+    ? 'OpenRouter'
+    : 'OpenAI';
 };

@@ -26,7 +26,7 @@ export type MealLogRow = {
 export type PreferenceRow = {
   allergies: string[];
   dislikes: string[];
-  note: string | null;
+  notes: string[];
 } | null;
 
 export type SuggestionContext = {
@@ -42,7 +42,12 @@ export const generatedMealPlanSchema = z.object({
   note: z.string().min(1),
 });
 
-type PrioritizedIngredient = z.infer<typeof dailySuggestionResponseSchema.shape.priorities>[number];
+export const fallbackSuggestionNotePrefix =
+  'AI 提案を取得できなかったため、在庫と履歴ルールに基づく簡易提案を表示しています。';
+
+type PrioritizedIngredient = z.infer<
+  typeof dailySuggestionResponseSchema.shape.priorities
+>[number];
 
 const mealKeywords = {
   野菜: ['サラダ', '野菜', '炒め', 'スープ', '煮物'],
@@ -130,13 +135,14 @@ export const buildRecentPattern = (meals: MealLogRow[]) => {
     return acc;
   }, {});
 
-  const topMealType = Object.entries(mealTypeCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topMealType = Object.entries(mealTypeCounts).sort(
+    (a, b) => b[1] - a[1],
+  )[0]?.[0];
   const averageSatisfaction =
-    meals.filter((meal) => meal.satisfaction !== null).reduce((acc, meal) => acc + (meal.satisfaction ?? 0), 0) /
-      Math.max(
-        1,
-        meals.filter((meal) => meal.satisfaction !== null).length,
-      );
+    meals
+      .filter((meal) => meal.satisfaction !== null)
+      .reduce((acc, meal) => acc + (meal.satisfaction ?? 0), 0) /
+    Math.max(1, meals.filter((meal) => meal.satisfaction !== null).length);
 
   const highCarbBias = meals.filter((meal) =>
     ['丼', '麺', 'パスタ', 'カレー', 'パン', 'チャーハン'].some((keyword) =>
@@ -159,7 +165,8 @@ export const rankIngredients = ({ ingredients, meals }: SuggestionContext) => {
   const priorities = ingredients
     .map((ingredient) => {
       const urgencyScore =
-        expiryUrgencyScore(ingredient.expiresOn) + categoryFocusBonus(ingredient.category, meals);
+        expiryUrgencyScore(ingredient.expiresOn) +
+        categoryFocusBonus(ingredient.category, meals);
 
       const reason = expiryReason(ingredient.expiresOn);
 
@@ -176,12 +183,15 @@ export const rankIngredients = ({ ingredients, meals }: SuggestionContext) => {
   return priorities;
 };
 
-export const buildSuggestionPrompt = (context: SuggestionContext, priorities: PrioritizedIngredient[]) => {
+export const buildSuggestionPrompt = (
+  context: SuggestionContext,
+  priorities: PrioritizedIngredient[],
+) => {
   const recentPattern = buildRecentPattern(context.meals);
   const constraints = {
     allergies: context.preferences?.allergies ?? [],
     dislikes: context.preferences?.dislikes ?? [],
-    note: context.preferences?.note ?? '',
+    notes: context.preferences?.notes ?? [],
   };
 
   const prompt = `
@@ -239,7 +249,9 @@ export const createFallbackSuggestion = (
             ],
             cautions: [
               ...(context.preferences?.allergies.length
-                ? [`アレルギー対象: ${context.preferences.allergies.join('、')} を避けてください。`]
+                ? [
+                    `アレルギー対象: ${context.preferences.allergies.join('、')} を避けてください。`,
+                  ]
                 : []),
             ],
           },
@@ -253,9 +265,19 @@ export const createFallbackSuggestion = (
             cautions: ['不足食材の補充も検討してください。'],
           },
         ],
-    note:
-      fallbackReason
-        ? `AI 提案を取得できなかったため、在庫と履歴ルールに基づく簡易提案を表示しています。(${fallbackReason})`
-        : 'AI 提案を取得できなかったため、在庫と履歴ルールに基づく簡易提案を表示しています。',
+    note: fallbackReason
+      ? `${fallbackSuggestionNotePrefix}(${fallbackReason})`
+      : fallbackSuggestionNotePrefix,
   });
+};
+
+export const isFallbackSuggestionResult = (result: unknown) => {
+  if (!result || typeof result !== 'object') {
+    return false;
+  }
+
+  const note = (result as { note?: unknown }).note;
+  return (
+    typeof note === 'string' && note.startsWith(fallbackSuggestionNotePrefix)
+  );
 };

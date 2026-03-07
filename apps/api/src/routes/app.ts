@@ -1,11 +1,12 @@
 import {
   dailySuggestionResponseSchema,
   ingredientInputSchema,
+  llmCatalogPreviewInputSchema,
   llmCatalogResponseSchema,
   llmProviderSchema,
   mealLogInputSchema,
-  userLlmSettingsInputSchema,
   userLlmSettingsRecordSchema,
+  userLlmSettingsUpdateInputSchema,
   userPreferencesInputSchema,
 } from '@aiva/shared';
 import { and, desc, eq } from 'drizzle-orm';
@@ -21,11 +22,16 @@ import {
   userLlmSettings,
   userPreferences,
 } from '../db/schema.js';
+import { isFallbackSuggestionResult } from '../domain/suggestions.js';
 import { getTodayInJapan } from '../lib/date.js';
 import {
+  buildCredentialStatusMap,
   getModelCatalog,
+  resolveProviderApiKey,
   resolveStoredLlmSettings,
   validateLlmSettings,
+  withoutStoredProviderApiKey,
+  withStoredProviderApiKey,
 } from '../lib/llm.js';
 import { mastra } from '../mastra/index.js';
 
@@ -84,7 +90,9 @@ appRoutes.post('/ingredients', async (context) => {
 appRoutes.patch('/ingredients/:id', async (context) => {
   const { user } = await requireSession(context);
   const { id } = idSchema.parse(context.req.param());
-  const payload = ingredientInputSchema.partial().parse(await context.req.json());
+  const payload = ingredientInputSchema
+    .partial()
+    .parse(await context.req.json());
 
   const [updated] = await db
     .update(ingredients)
@@ -193,14 +201,14 @@ appRoutes.get('/preferences', async (context) => {
     return context.json({
       allergies: [],
       dislikes: [],
-      note: null,
+      notes: [],
     });
   }
 
   return context.json({
     allergies: preference.allergies,
     dislikes: preference.dislikes,
-    note: preference.note,
+    notes: preference.notes,
   });
 });
 
@@ -216,7 +224,7 @@ appRoutes.put('/preferences', async (context) => {
     userId: user.id,
     allergies: payload.allergies,
     dislikes: payload.dislikes,
-    note: payload.note,
+    notes: payload.notes,
     updatedAt: new Date(),
   };
 
@@ -256,6 +264,9 @@ appRoutes.get('/llm-settings', async (context) => {
           modelId: existing.modelId,
         }
       : null,
+    {
+      providerKeys: existing?.providerKeys,
+    },
   );
 
   return context.json(
@@ -263,15 +274,45 @@ appRoutes.get('/llm-settings', async (context) => {
       provider: resolved.provider,
       modelId: resolved.modelId,
       updatedAt: existing?.updatedAt.toISOString() ?? null,
+      credentialStatus: buildCredentialStatusMap(existing?.providerKeys),
     }),
   );
 });
 
 appRoutes.put('/llm-settings', async (context) => {
   const { user } = await requireSession(context);
-  const payload = userLlmSettingsInputSchema.parse(await context.req.json());
+  const payload = userLlmSettingsUpdateInputSchema.parse(
+    await context.req.json(),
+  );
 
-  const validationError = await validateLlmSettings(payload).catch((error) =>
+  const existing = await db.query.userLlmSettings.findFirst({
+    where: eq(userLlmSettings.userId, user.id),
+  });
+
+  let providerKeys = existing?.providerKeys ?? {};
+
+  if (payload.clearStoredApiKey) {
+    providerKeys = withoutStoredProviderApiKey(providerKeys, payload.provider);
+  }
+
+  if (payload.apiKey?.trim()) {
+    providerKeys = withStoredProviderApiKey(
+      providerKeys,
+      payload.provider,
+      payload.apiKey,
+    );
+  }
+
+  const effectiveApiKey = resolveProviderApiKey(payload.provider, providerKeys);
+  const validationError = await validateLlmSettings(
+    {
+      provider: payload.provider,
+      modelId: payload.modelId,
+    },
+    {
+      apiKey: effectiveApiKey,
+    },
+  ).catch((error) =>
     error instanceof Error ? error.message : 'モデル設定の検証に失敗しました。',
   );
 
@@ -279,16 +320,13 @@ appRoutes.put('/llm-settings', async (context) => {
     throw new HTTPException(400, { message: validationError });
   }
 
-  const existing = await db.query.userLlmSettings.findFirst({
-    where: eq(userLlmSettings.userId, user.id),
-  });
-
   if (existing) {
     const [updated] = await db
       .update(userLlmSettings)
       .set({
         provider: payload.provider,
         modelId: payload.modelId,
+        providerKeys,
         updatedAt: new Date(),
       })
       .where(eq(userLlmSettings.userId, user.id))
@@ -299,6 +337,7 @@ appRoutes.put('/llm-settings', async (context) => {
         provider: updated.provider,
         modelId: updated.modelId,
         updatedAt: updated.updatedAt.toISOString(),
+        credentialStatus: buildCredentialStatusMap(updated.providerKeys),
       }),
     );
   }
@@ -310,6 +349,7 @@ appRoutes.put('/llm-settings', async (context) => {
       userId: user.id,
       provider: payload.provider,
       modelId: payload.modelId,
+      providerKeys,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -320,22 +360,49 @@ appRoutes.put('/llm-settings', async (context) => {
       provider: created.provider,
       modelId: created.modelId,
       updatedAt: created.updatedAt.toISOString(),
+      credentialStatus: buildCredentialStatusMap(created.providerKeys),
     }),
     201,
   );
 });
 
 appRoutes.get('/llm-models', async (context) => {
-  await requireSession(context);
+  const { user } = await requireSession(context);
   const query = llmCatalogQuerySchema.parse(context.req.query());
+  const existing = await db.query.userLlmSettings.findFirst({
+    where: eq(userLlmSettings.userId, user.id),
+  });
 
   try {
-    const catalog = await getModelCatalog(query.provider);
+    const catalog = await getModelCatalog(query.provider, {
+      apiKey: resolveProviderApiKey(query.provider, existing?.providerKeys),
+    });
     return context.json(llmCatalogResponseSchema.parse(catalog));
   } catch (error) {
     throw new HTTPException(502, {
       message:
-        error instanceof Error ? error.message : 'モデル一覧の取得に失敗しました。',
+        error instanceof Error
+          ? error.message
+          : 'モデル一覧の取得に失敗しました。',
+    });
+  }
+});
+
+appRoutes.post('/llm-models/preview', async (context) => {
+  await requireSession(context);
+  const payload = llmCatalogPreviewInputSchema.parse(await context.req.json());
+
+  try {
+    const catalog = await getModelCatalog(payload.provider, {
+      apiKey: payload.apiKey,
+    });
+    return context.json(llmCatalogResponseSchema.parse(catalog));
+  } catch (error) {
+    throw new HTTPException(502, {
+      message:
+        error instanceof Error
+          ? error.message
+          : '入力中のAPIキーでモデル一覧の取得に失敗しました。',
     });
   }
 });
@@ -345,11 +412,18 @@ appRoutes.get('/suggestions/today', async (context) => {
   const today = getTodayInJapan();
 
   const latest = await db.query.suggestionRuns.findFirst({
-    where: and(eq(suggestionRuns.userId, user.id), eq(suggestionRuns.suggestionDate, today)),
+    where: and(
+      eq(suggestionRuns.userId, user.id),
+      eq(suggestionRuns.suggestionDate, today),
+    ),
     orderBy: [desc(suggestionRuns.createdAt)],
   });
 
   if (!latest) {
+    return context.json(null);
+  }
+
+  if (isFallbackSuggestionResult(latest.result)) {
     return context.json(null);
   }
 
@@ -374,7 +448,9 @@ appRoutes.post('/suggestions/today', async (context) => {
   const workflow = mastra.getWorkflow('dailySuggestionWorkflow');
 
   if (!workflow) {
-    throw new HTTPException(500, { message: 'Suggestion workflow is not configured' });
+    throw new HTTPException(500, {
+      message: 'Suggestion workflow is not configured',
+    });
   }
 
   const run = await workflow.createRun({
@@ -388,8 +464,17 @@ appRoutes.post('/suggestions/today', async (context) => {
     },
   });
 
+  if (result.status === 'failed') {
+    throw new HTTPException(400, {
+      message:
+        result.error instanceof Error
+          ? result.error.message
+          : '提案生成に失敗しました。',
+    });
+  }
+
   if (result.status !== 'success') {
-    throw new HTTPException(500, { message: 'Failed to generate suggestion' });
+    throw new HTTPException(500, { message: '提案生成に失敗しました。' });
   }
 
   return context.json(dailySuggestionResponseSchema.parse(result.result));

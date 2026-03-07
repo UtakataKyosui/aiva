@@ -15,6 +15,20 @@
       "when": 1772904091472,
       "tag": "0001_careless_mordo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772947800000,
+      "tag": "0002_steady_aurora",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772994000000,
+      "tag": "0003_brisk_harmony",
+      "breakpoints": true
     }
   ]
 }

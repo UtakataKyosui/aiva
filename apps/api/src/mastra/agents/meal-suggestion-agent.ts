@@ -1,6 +1,11 @@
-import { llmProviderSchema, type LlmProvider, suggestionMealSchema } from '@aiva/shared';
+import {
+  type LlmProvider,
+  llmProviderSchema,
+  suggestionMealSchema,
+} from '@aiva/shared';
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
+import { env } from '../../env.js';
 
 export const mealSuggestionObjectSchema = z.object({
   meals: z.array(suggestionMealSchema).min(1).max(3),
@@ -10,6 +15,7 @@ export const mealSuggestionObjectSchema = z.object({
 const llmRequestContextSchema = z.object({
   llmProvider: llmProviderSchema,
   llmModelId: z.string().min(1),
+  llmApiKey: z.string().nullable().optional(),
 });
 
 export const mealSuggestionAgent = new Agent({
@@ -27,8 +33,32 @@ export const mealSuggestionAgent = new Agent({
 `,
   requestContextSchema: llmRequestContextSchema,
   model: ({ requestContext }) => {
-    const provider = (requestContext.get('llmProvider') as LlmProvider | undefined) ?? 'openai';
-    const modelId = (requestContext.get('llmModelId') as string | undefined) ?? 'gpt-5-mini';
-    return `${provider}/${modelId}`;
+    const provider =
+      (requestContext.get('llmProvider') as LlmProvider | undefined) ??
+      'openai';
+    const modelId =
+      (requestContext.get('llmModelId') as string | undefined) ?? 'gpt-5-mini';
+    const apiKey =
+      (requestContext.get('llmApiKey') as string | null | undefined) ?? null;
+
+    if (!apiKey) {
+      return `${provider}/${modelId}`;
+    }
+
+    return provider === 'openrouter'
+      ? {
+          providerId: 'openrouter',
+          modelId,
+          apiKey,
+          headers: {
+            'HTTP-Referer': env.WEB_ORIGIN,
+            'X-Title': 'Aiva',
+          },
+        }
+      : {
+          providerId: 'openai',
+          modelId,
+          apiKey,
+        };
   },
 });

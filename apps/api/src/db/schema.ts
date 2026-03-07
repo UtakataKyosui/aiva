@@ -13,9 +13,22 @@ import * as authSchema from './auth-schema.js';
 
 export * from './auth-schema.js';
 
+type StoredProviderKey = {
+  ciphertext: string;
+  lastFour: string;
+};
+
+type ProviderKeyStore = Partial<
+  Record<'openai' | 'openrouter', StoredProviderKey>
+>;
+
 const timestamps = {
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 };
 
 export const userPreferences = pgTable(
@@ -27,7 +40,7 @@ export const userPreferences = pgTable(
       .references(() => authSchema.user.id, { onDelete: 'cascade' }),
     allergies: jsonb('allergies').$type<string[]>().notNull().default([]),
     dislikes: jsonb('dislikes').$type<string[]>().notNull().default([]),
-    note: text('note'),
+    notes: jsonb('notes').$type<string[]>().notNull().default([]),
     ...timestamps,
   },
   (table) => ({
@@ -44,6 +57,10 @@ export const userLlmSettings = pgTable(
       .references(() => authSchema.user.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
     modelId: text('model_id').notNull(),
+    providerKeys: jsonb('provider_keys')
+      .$type<ProviderKeyStore>()
+      .notNull()
+      .default({}),
     ...timestamps,
   },
   (table) => ({
@@ -112,7 +129,10 @@ export const suggestionRuns = pgTable(
   },
   (table) => ({
     userIdx: index('suggestion_runs_user_id_idx').on(table.userId),
-    latestIdx: index('suggestion_runs_user_date_idx').on(table.userId, table.suggestionDate),
+    latestIdx: index('suggestion_runs_user_date_idx').on(
+      table.userId,
+      table.suggestionDate,
+    ),
   }),
 );
 

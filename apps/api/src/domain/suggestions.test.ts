@@ -1,6 +1,11 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRecentPattern, createFallbackSuggestion, rankIngredients } from './suggestions.js';
+import test from 'node:test';
+import {
+  buildRecentPattern,
+  createFallbackSuggestion,
+  isFallbackSuggestionResult,
+  rankIngredients,
+} from './suggestions.js';
 
 test('rankIngredients prioritizes items close to expiry', () => {
   const ranked = rankIngredients({
@@ -64,11 +69,37 @@ test('fallback suggestion avoids empty response', () => {
       suggestionDate: '2026-03-08',
       ingredients: [],
       meals: [],
-      preferences: { allergies: ['えび'], dislikes: ['パクチー'], note: null },
+      preferences: {
+        allergies: ['えび'],
+        dislikes: ['パクチー'],
+        notes: [],
+      },
     },
     [],
   );
 
   assert.equal(response.meals.length, 1);
   assert.match(response.note, /簡易提案/);
+});
+
+test('isFallbackSuggestionResult detects legacy saved fallback payloads', () => {
+  const response = createFallbackSuggestion(
+    {
+      suggestionDate: '2026-03-08',
+      ingredients: [],
+      meals: [],
+      preferences: null,
+    },
+    [],
+    'Incorrect API key',
+  );
+
+  assert.equal(isFallbackSuggestionResult(response), true);
+  assert.equal(
+    isFallbackSuggestionResult({
+      ...response,
+      note: '通常の提案メモです。',
+    }),
+    false,
+  );
 });
