@@ -29,6 +29,13 @@
       "when": 1772994000000,
       "tag": "0003_brisk_harmony",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772998800000,
+      "tag": "0004_bold_shortcuts",
+      "breakpoints": true
     }
   ]
 }

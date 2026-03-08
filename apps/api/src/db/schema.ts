@@ -22,6 +22,31 @@ type ProviderKeyStore = Partial<
   Record<'openai' | 'openrouter', StoredProviderKey>
 >;
 
+type MealLogSourceType = 'manual' | 'shortcut';
+
+type ConsumedProductSnapshotItem = {
+  productId: string;
+  serviceId: string | null;
+  serviceName: string | null;
+  productName: string;
+  quantity: number;
+  stockUnit:
+    | 'g'
+    | 'kg'
+    | 'ml'
+    | 'l'
+    | '個'
+    | '本'
+    | '袋'
+    | 'パック'
+    | '枚'
+    | '食分';
+  calories: number | null;
+  protein: number | null;
+  fat: number | null;
+  carbs: number | null;
+};
+
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true })
     .defaultNow()
@@ -93,6 +118,95 @@ export const ingredients = pgTable(
   }),
 );
 
+export const subscriptionServices = pgTable(
+  'subscription_services',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authSchema.user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (table) => ({
+    userIdx: index('subscription_services_user_id_idx').on(table.userId),
+  }),
+);
+
+export const subscriptionProducts = pgTable(
+  'subscription_products',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authSchema.user.id, { onDelete: 'cascade' }),
+    serviceId: text('service_id')
+      .notNull()
+      .references(() => subscriptionServices.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    sku: text('sku'),
+    stockQuantity: doublePrecision('stock_quantity').notNull(),
+    stockUnit: text('stock_unit').notNull(),
+    calories: doublePrecision('calories'),
+    protein: doublePrecision('protein'),
+    fat: doublePrecision('fat'),
+    carbs: doublePrecision('carbs'),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (table) => ({
+    userIdx: index('subscription_products_user_id_idx').on(table.userId),
+    serviceIdx: index('subscription_products_service_id_idx').on(
+      table.serviceId,
+    ),
+  }),
+);
+
+export const mealShortcuts = pgTable(
+  'meal_shortcuts',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authSchema.user.id, { onDelete: 'cascade' }),
+    serviceId: text('service_id').references(() => subscriptionServices.id, {
+      onDelete: 'set null',
+    }),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (table) => ({
+    userIdx: index('meal_shortcuts_user_id_idx').on(table.userId),
+    serviceIdx: index('meal_shortcuts_service_id_idx').on(table.serviceId),
+  }),
+);
+
+export const mealShortcutItems = pgTable(
+  'meal_shortcut_items',
+  {
+    id: text('id').primaryKey(),
+    shortcutId: text('shortcut_id')
+      .notNull()
+      .references(() => mealShortcuts.id, { onDelete: 'cascade' }),
+    productId: text('product_id')
+      .notNull()
+      .references(() => subscriptionProducts.id, { onDelete: 'cascade' }),
+    quantity: doublePrecision('quantity').notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    shortcutIdx: index('meal_shortcut_items_shortcut_id_idx').on(
+      table.shortcutId,
+    ),
+    productIdx: index('meal_shortcut_items_product_id_idx').on(table.productId),
+    uniqueProductPerShortcut: uniqueIndex(
+      'meal_shortcut_items_shortcut_product_idx',
+    ).on(table.shortcutId, table.productId),
+  }),
+);
+
 export const mealLogs = pgTable(
   'meal_logs',
   {
@@ -103,6 +217,21 @@ export const mealLogs = pgTable(
     consumedOn: date('consumed_on').notNull(),
     mealType: text('meal_type').notNull(),
     menuName: text('menu_name').notNull(),
+    sourceType: text('source_type')
+      .$type<MealLogSourceType>()
+      .notNull()
+      .default('manual'),
+    shortcutId: text('shortcut_id').references(() => mealShortcuts.id, {
+      onDelete: 'set null',
+    }),
+    calories: doublePrecision('calories'),
+    protein: doublePrecision('protein'),
+    fat: doublePrecision('fat'),
+    carbs: doublePrecision('carbs'),
+    consumedSnapshot: jsonb('consumed_snapshot')
+      .$type<ConsumedProductSnapshotItem[]>()
+      .notNull()
+      .default([]),
     satisfaction: integer('satisfaction'),
     note: text('note'),
     ...timestamps,
@@ -110,6 +239,7 @@ export const mealLogs = pgTable(
   (table) => ({
     userIdx: index('meal_logs_user_id_idx').on(table.userId),
     consumedOnIdx: index('meal_logs_consumed_on_idx').on(table.consumedOn),
+    shortcutIdx: index('meal_logs_shortcut_id_idx').on(table.shortcutId),
   }),
 );
 
@@ -141,6 +271,10 @@ export const schema = {
   userPreferences,
   userLlmSettings,
   ingredients,
+  subscriptionServices,
+  subscriptionProducts,
+  mealShortcuts,
+  mealShortcutItems,
   mealLogs,
   suggestionRuns,
 };
