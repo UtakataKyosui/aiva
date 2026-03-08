@@ -9,9 +9,9 @@ dist/
 .moon/cache
 .moon/docker
 .pnpm-store
-apps/api/dist
 apps/web/dist
-apps/api/.mastra
+**/.next
+**/*.tsbuildinfo
 
 # Profile
 .rspack-profile-*/
