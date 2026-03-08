@@ -13,26 +13,30 @@ tasks:
     deps:
       - ^:build
     inputs:
+      - app/**/*
       - src/**/*
       - public/**/*
       - package.json
       - tsconfig.json
-      - rsbuild.config.ts
+      - next.config.ts
+      - drizzle.config.ts
     outputs:
-      - dist
+      - .next
   test:
     command: pnpm test
     deps:
       - ^:build
     inputs:
+      - app/**/*
       - src/**/*
       - tests/**/*
       - package.json
       - tsconfig.json
-      - rstest.config.ts
+      - next.config.ts
   lint:
     command: pnpm lint
     inputs:
+      - app/**/*
       - src/**/*
       - tests/**/*
       - package.json

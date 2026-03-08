@@ -1,18 +1,15 @@
-import { expect, test } from '@rstest/core';
-import { RouterProvider } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
-import { router } from '../src/router';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { resolveDashboardView } from '../src/dashboard-routes';
 
-test('renders the main page', async () => {
-  globalThis.fetch = async () =>
-    new Response('', {
-      status: 401,
-    });
+test('resolves the overview route from the root path', () => {
+  assert.equal(resolveDashboardView('/'), 'overview');
+});
 
-  await router.navigate({ to: '/' });
-  render(<RouterProvider router={router} />);
-  expect(
-    await screen.findByRole('heading', { level: 1, name: 'Aiva' }),
-  ).toBeInTheDocument();
-  expect(await screen.findByText('Google でログイン')).toBeInTheDocument();
+test('resolves each dashboard child route', () => {
+  assert.equal(resolveDashboardView('/suggestion'), 'suggestion');
+  assert.equal(resolveDashboardView('/ingredients'), 'ingredients');
+  assert.equal(resolveDashboardView('/meals'), 'meals');
+  assert.equal(resolveDashboardView('/subscriptions'), 'subscriptions');
+  assert.equal(resolveDashboardView('/settings'), 'settings');
 });

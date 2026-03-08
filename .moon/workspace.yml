@@ -1,5 +1,4 @@
 projects:
-  api: apps/api
   web: apps/web
   shared: packages/shared
   config: packages/config
