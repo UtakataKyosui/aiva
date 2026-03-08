@@ -27,6 +27,7 @@ export const quantityUnits = [
 ] as const;
 
 export const mealTypes = ['朝食', '昼食', '夕食', '間食'] as const;
+export const mealLogSourceTypes = ['manual', 'shortcut'] as const;
 export const llmProviders = ['openai', 'openrouter'] as const;
 
 export const ingredientInputSchema = z.object({
@@ -56,8 +57,132 @@ export const mealLogInputSchema = z.object({
   note: z.string().max(500).nullable(),
 });
 
+export const nutritionTotalsSchema = z.object({
+  calories: z.number().nonnegative(),
+  protein: z.number().nonnegative(),
+  fat: z.number().nonnegative(),
+  carbs: z.number().nonnegative(),
+});
+
+export const consumedProductSnapshotItemSchema = z.object({
+  productId: z.string(),
+  serviceId: z.string().nullable(),
+  serviceName: z.string().nullable(),
+  productName: z.string(),
+  quantity: z.number().positive(),
+  stockUnit: z.enum(quantityUnits),
+  calories: z.number().nonnegative().nullable(),
+  protein: z.number().nonnegative().nullable(),
+  fat: z.number().nonnegative().nullable(),
+  carbs: z.number().nonnegative().nullable(),
+});
+
 export const mealLogRecordSchema = mealLogInputSchema.extend({
   id: z.string(),
+  sourceType: z.enum(mealLogSourceTypes),
+  shortcutId: z.string().nullable(),
+  calories: z.number().nonnegative().nullable(),
+  protein: z.number().nonnegative().nullable(),
+  fat: z.number().nonnegative().nullable(),
+  carbs: z.number().nonnegative().nullable(),
+  consumedSnapshot: z.array(consumedProductSnapshotItemSchema),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const createMealFromShortcutInputSchema = z.object({
+  shortcutId: z.string().uuid(),
+  consumedOn: z.string(),
+  mealType: z.enum(mealTypes),
+  satisfaction: z.number().int().min(1).max(5).nullable(),
+  note: z.string().max(500).nullable(),
+});
+
+export const subscriptionServiceInputSchema = z.object({
+  name: z.string().min(1, 'サービス名は必須です'),
+  notes: z.string().max(280).nullable(),
+});
+
+export const subscriptionServiceRecordSchema =
+  subscriptionServiceInputSchema.extend({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  });
+
+export const subscriptionProductInputSchema = z.object({
+  serviceId: z.string().uuid(),
+  name: z.string().min(1, '商品名は必須です'),
+  sku: z.string().max(120).nullable(),
+  stockQuantity: z.number().nonnegative(),
+  stockUnit: z.enum(quantityUnits),
+  calories: z.number().nonnegative().nullable(),
+  protein: z.number().nonnegative().nullable(),
+  fat: z.number().nonnegative().nullable(),
+  carbs: z.number().nonnegative().nullable(),
+  notes: z.string().max(280).nullable(),
+});
+
+export const subscriptionProductRecordSchema =
+  subscriptionProductInputSchema.extend({
+    id: z.string(),
+    serviceName: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  });
+
+export const mealShortcutItemInputSchema = z.object({
+  productId: z.string().uuid(),
+  quantity: z.number().positive('使用数は正の数で入力してください'),
+});
+
+export const mealShortcutItemRecordSchema = mealShortcutItemInputSchema.extend({
+  id: z.string(),
+  serviceId: z.string().nullable(),
+  serviceName: z.string().nullable(),
+  productName: z.string(),
+  stockQuantity: z.number().nonnegative(),
+  stockUnit: z.enum(quantityUnits),
+  calories: z.number().nonnegative().nullable(),
+  protein: z.number().nonnegative().nullable(),
+  fat: z.number().nonnegative().nullable(),
+  carbs: z.number().nonnegative().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const mealShortcutInputSchema = z
+  .object({
+    serviceId: z.string().uuid().nullable(),
+    name: z.string().min(1, 'ショートカット名は必須です'),
+    notes: z.string().max(280).nullable(),
+    items: z
+      .array(mealShortcutItemInputSchema)
+      .min(1, 'ショートカットには1件以上の商品が必要です')
+      .max(20),
+  })
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, item] of value.items.entries()) {
+      if (seen.has(item.productId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: '同じ商品をショートカット内で重複登録できません。',
+          path: ['items', index, 'productId'],
+        });
+      }
+      seen.add(item.productId);
+    }
+  });
+
+export const mealShortcutRecordSchema = z.object({
+  id: z.string(),
+  serviceId: z.string().uuid().nullable(),
+  serviceName: z.string().nullable(),
+  name: z.string(),
+  notes: z.string().nullable(),
+  items: z.array(mealShortcutItemRecordSchema),
+  totals: nutritionTotalsSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -163,6 +288,31 @@ export type IngredientInput = z.infer<typeof ingredientInputSchema>;
 export type IngredientRecord = z.infer<typeof ingredientRecordSchema>;
 export type MealLogInput = z.infer<typeof mealLogInputSchema>;
 export type MealLogRecord = z.infer<typeof mealLogRecordSchema>;
+export type CreateMealFromShortcutInput = z.infer<
+  typeof createMealFromShortcutInputSchema
+>;
+export type NutritionTotals = z.infer<typeof nutritionTotalsSchema>;
+export type ConsumedProductSnapshotItem = z.infer<
+  typeof consumedProductSnapshotItemSchema
+>;
+export type SubscriptionServiceInput = z.infer<
+  typeof subscriptionServiceInputSchema
+>;
+export type SubscriptionServiceRecord = z.infer<
+  typeof subscriptionServiceRecordSchema
+>;
+export type SubscriptionProductInput = z.infer<
+  typeof subscriptionProductInputSchema
+>;
+export type SubscriptionProductRecord = z.infer<
+  typeof subscriptionProductRecordSchema
+>;
+export type MealShortcutItemInput = z.infer<typeof mealShortcutItemInputSchema>;
+export type MealShortcutItemRecord = z.infer<
+  typeof mealShortcutItemRecordSchema
+>;
+export type MealShortcutInput = z.infer<typeof mealShortcutInputSchema>;
+export type MealShortcutRecord = z.infer<typeof mealShortcutRecordSchema>;
 export type UserPreferencesInput = z.infer<typeof userPreferencesInputSchema>;
 export type UserPreferencesRecord = z.infer<typeof userPreferencesRecordSchema>;
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
