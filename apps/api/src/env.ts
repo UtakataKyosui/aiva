@@ -24,7 +24,10 @@ const optionalEnvString = z.preprocess((value) => {
 }, z.string().min(1).optional());
 
 const envSchema = z.object({
-  API_PORT: z.coerce.number().default(4112),
+  API_PORT: z.preprocess(
+    (value) => value ?? process.env.PORT,
+    z.coerce.number().default(4112),
+  ),
   DATABASE_URL: z.string().min(1),
   OPENAI_API_KEY: optionalEnvString,
   OPENROUTER_API_KEY: optionalEnvString,

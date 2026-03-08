@@ -77,3 +77,17 @@ pnpm db:down
 pnpm db:migrate
 pnpm db:studio
 ```
+
+## Deployment
+
+- Leapcell: [docs/deploy/leapcell.md](/home/utakata/ドキュメント/aiva/docs/deploy/leapcell.md)
+
+Leapcell では `web` と `api` を別 Service に分けて deploy する想定です。  
+Build / Start 用に次の script を追加しています。
+
+```bash
+pnpm run build:web
+pnpm run start:web
+pnpm run build:api
+pnpm run start:api
+```
