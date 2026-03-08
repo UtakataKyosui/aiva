@@ -21,10 +21,10 @@ npm install -g pnpm@10.30.1 && pnpm install --frozen-lockfile && pnpm run build:
 - Start Command:
 
 ```bash
-pnpm run start:web
+pnpm db:migrate && pnpm run start:web
 ```
 
-必要なら deploy 前後に `pnpm db:migrate` を別ジョブで実行してください。アプリ本体は Next.js server として起動します。
+起動時に migration を走らせてから Next.js server を起動します。build フェーズで DB を更新しない構成です。
 
 ### Environment Variables
 
@@ -68,4 +68,5 @@ Google Cloud Console 側で以下を許可します。
 
 - `BETTER_AUTH_URL` と `WEB_ORIGIN` は同じ Service domain を向けます
 - `DATABASE_URL` と Google OAuth 設定が正しくないとログインできません
+- PostgreSQL の default schema が `public` 以外でも動くように、アプリ側で `search_path=public` を固定しています
 - Leapcell の command 欄には改行を入れず、1 行で貼り付けてください
