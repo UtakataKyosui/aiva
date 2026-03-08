@@ -2,13 +2,41 @@
   "extends": "../../packages/config/typescript/base.json",
   "compilerOptions": {
     "baseUrl": ".",
-    "lib": ["DOM", "ES2022"],
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
     "noEmit": true,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
     "paths": {
       "@/*": ["./src/*"],
       "@aiva/shared": ["../../packages/shared/src/index.ts"],
       "@aiva/shared/*": ["../../packages/shared/src/*"]
     }
   },
-  "include": ["src", "tests", "rsbuild.config.ts", "rstest.config.ts"]
+  "include": [
+    "next-env.d.ts",
+    "app",
+    "src/App.tsx",
+    "src/dashboard-routes.ts",
+    "src/lib/**/*.ts",
+    "src/server/**/*.ts",
+    "tests",
+    ".next/types/**/*.ts",
+    "next.config.ts",
+    "drizzle.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/components",
+    "src/lib/utils.ts",
+    "src/index.tsx",
+    "src/router.tsx",
+    "src/env.d.ts"
+  ]
 }

@@ -32,7 +32,7 @@ export type SessionPayload = {
   };
 };
 
-const API_BASE = import.meta.env.PUBLIC_API_BASE_URL ?? 'http://localhost:4112';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 
 const request = async <T>(path: string, init?: RequestInit) => {
   const response = await fetch(`${API_BASE}${path}`, {

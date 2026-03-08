@@ -1,3 +1,5 @@
+'use client';
+
 import type {
   CreateMealFromShortcutInput,
   DailySuggestionResponse,
@@ -21,7 +23,7 @@ import type {
   UserLlmSettingsUpdateInput,
   UserPreferencesInput,
 } from '@aiva/shared';
-import { useNavigate, useRouterState } from '@tanstack/react-router';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   type FormEvent,
   type ReactNode,
@@ -30,7 +32,6 @@ import {
   useMemo,
   useState,
 } from 'react';
-import './App.css';
 import {
   type DashboardView,
   dashboardRoutePaths,
@@ -405,10 +406,8 @@ const getInitialTheme = (): ThemeMode => {
 };
 
 const App = () => {
-  const navigate = useNavigate();
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  });
+  const router = useRouter();
+  const pathname = usePathname() || '/';
   const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [booting, setBooting] = useState(true);
@@ -647,9 +646,9 @@ const App = () => {
     setMealShortcutModalOpen(false);
 
     if (pathname !== dashboardRoutePaths.overview) {
-      void navigate({ to: dashboardRoutePaths.overview });
+      router.push(dashboardRoutePaths.overview);
     }
-  }, [navigate, pathname, session]);
+  }, [pathname, router, session]);
 
   useEffect(() => {
     if (
@@ -666,7 +665,7 @@ const App = () => {
 
   const navigateTo = (view: DashboardView) => {
     setSidebarOpen(false);
-    void navigate({ to: dashboardRoutePaths[view] });
+    router.push(dashboardRoutePaths[view]);
   };
 
   const closeIngredientModal = () => {
