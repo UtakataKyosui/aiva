@@ -1,3 +1,5 @@
+SET search_path TO public;
+--> statement-breakpoint
 CREATE TABLE "user_llm_settings" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,

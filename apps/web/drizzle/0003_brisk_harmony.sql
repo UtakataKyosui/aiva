@@ -1,3 +1,5 @@
+SET search_path TO public;
+--> statement-breakpoint
 ALTER TABLE "user_preferences"
 ADD COLUMN "notes" jsonb DEFAULT '[]'::jsonb NOT NULL;
 
