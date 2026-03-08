@@ -33,6 +33,12 @@ const mealsRoute = createRoute({
   component: () => null,
 });
 
+const subscriptionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'subscriptions',
+  component: () => null,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'settings',
@@ -44,6 +50,7 @@ const routeTree = rootRoute.addChildren([
   suggestionRoute,
   ingredientsRoute,
   mealsRoute,
+  subscriptionsRoute,
   settingsRoute,
 ]);
 

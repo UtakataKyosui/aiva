@@ -3,6 +3,7 @@ export type DashboardView =
   | 'suggestion'
   | 'ingredients'
   | 'meals'
+  | 'subscriptions'
   | 'settings';
 
 export const dashboardViewMeta: Record<
@@ -33,6 +34,12 @@ export const dashboardViewMeta: Record<
     description:
       '最近の食事記録と満足度を整理し、偏りや続いているパターンを把握します。',
   },
+  subscriptions: {
+    eyebrow: 'Subscription Pantry',
+    title: '定期便ストック',
+    description:
+      '契約中のサービス、届く商品、食事ショートカットをまとめて管理し、記録を短縮します。',
+  },
   settings: {
     eyebrow: 'Preferences & AI',
     title: '設定と条件',
@@ -46,6 +53,7 @@ export const dashboardRoutePaths: Record<DashboardView, string> = {
   suggestion: '/suggestion',
   ingredients: '/ingredients',
   meals: '/meals',
+  subscriptions: '/subscriptions',
   settings: '/settings',
 };
 
@@ -57,6 +65,8 @@ export const resolveDashboardView = (pathname: string): DashboardView => {
       return 'ingredients';
     case dashboardRoutePaths.meals:
       return 'meals';
+    case dashboardRoutePaths.subscriptions:
+      return 'subscriptions';
     case dashboardRoutePaths.settings:
       return 'settings';
     default:

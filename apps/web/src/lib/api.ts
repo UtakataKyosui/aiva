@@ -1,4 +1,5 @@
 import type {
+  CreateMealFromShortcutInput,
   DailySuggestionResponse,
   IngredientInput,
   IngredientRecord,
@@ -7,6 +8,12 @@ import type {
   LlmProvider,
   MealLogInput,
   MealLogRecord,
+  MealShortcutInput,
+  MealShortcutRecord,
+  SubscriptionProductInput,
+  SubscriptionProductRecord,
+  SubscriptionServiceInput,
+  SubscriptionServiceRecord,
   UserLlmSettingsRecord,
   UserLlmSettingsUpdateInput,
   UserPreferencesInput,
@@ -78,9 +85,67 @@ export const api = {
     request<{ ok: true }>(`/api/ingredients/${id}`, {
       method: 'DELETE',
     }),
+  getSubscriptionServices: () =>
+    request<SubscriptionServiceRecord[]>('/api/subscription-services'),
+  createSubscriptionService: (input: SubscriptionServiceInput) =>
+    request<SubscriptionServiceRecord>('/api/subscription-services', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateSubscriptionService: (
+    id: string,
+    input: Partial<SubscriptionServiceInput>,
+  ) =>
+    request<SubscriptionServiceRecord>(`/api/subscription-services/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  deleteSubscriptionService: (id: string) =>
+    request<{ ok: true }>(`/api/subscription-services/${id}`, {
+      method: 'DELETE',
+    }),
+  getSubscriptionProducts: () =>
+    request<SubscriptionProductRecord[]>('/api/subscription-products'),
+  createSubscriptionProduct: (input: SubscriptionProductInput) =>
+    request<SubscriptionProductRecord>('/api/subscription-products', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateSubscriptionProduct: (
+    id: string,
+    input: Partial<SubscriptionProductInput>,
+  ) =>
+    request<SubscriptionProductRecord>(`/api/subscription-products/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  deleteSubscriptionProduct: (id: string) =>
+    request<{ ok: true }>(`/api/subscription-products/${id}`, {
+      method: 'DELETE',
+    }),
+  getMealShortcuts: () => request<MealShortcutRecord[]>('/api/meal-shortcuts'),
+  createMealShortcut: (input: MealShortcutInput) =>
+    request<MealShortcutRecord>('/api/meal-shortcuts', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateMealShortcut: (id: string, input: MealShortcutInput) =>
+    request<MealShortcutRecord>(`/api/meal-shortcuts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  deleteMealShortcut: (id: string) =>
+    request<{ ok: true }>(`/api/meal-shortcuts/${id}`, {
+      method: 'DELETE',
+    }),
   getMeals: () => request<MealLogRecord[]>('/api/meals'),
   createMeal: (input: MealLogInput) =>
     request<MealLogRecord>('/api/meals', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  createMealFromShortcut: (input: CreateMealFromShortcutInput) =>
+    request<MealLogRecord>('/api/meals/from-shortcut', {
       method: 'POST',
       body: JSON.stringify(input),
     }),

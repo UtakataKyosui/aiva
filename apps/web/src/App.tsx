@@ -1,4 +1,5 @@
 import type {
+  CreateMealFromShortcutInput,
   DailySuggestionResponse,
   IngredientInput,
   IngredientRecord,
@@ -8,6 +9,13 @@ import type {
   LlmProvider,
   MealLogInput,
   MealLogRecord,
+  MealShortcutInput,
+  MealShortcutRecord,
+  NutritionTotals,
+  SubscriptionProductInput,
+  SubscriptionProductRecord,
+  SubscriptionServiceInput,
+  SubscriptionServiceRecord,
   UserLlmSettingsInput,
   UserLlmSettingsRecord,
   UserLlmSettingsUpdateInput,
@@ -67,6 +75,7 @@ const providerLabels: Record<LlmProvider, string> = {
 const themeStorageKey = 'aiva-theme-mode';
 
 type ThemeMode = 'light' | 'dark';
+type MealComposerMode = 'manual' | 'shortcut';
 
 type ModalShellProps = {
   open: boolean;
@@ -209,6 +218,33 @@ const defaultMealForm = (): MealLogInput => ({
   note: null,
 });
 
+const defaultSubscriptionServiceForm = (): SubscriptionServiceInput => ({
+  name: '',
+  notes: null,
+});
+
+const defaultSubscriptionProductForm = (
+  serviceId = '',
+): SubscriptionProductInput => ({
+  serviceId,
+  name: '',
+  sku: null,
+  stockQuantity: 1,
+  stockUnit: '個',
+  calories: null,
+  protein: null,
+  fat: null,
+  carbs: null,
+  notes: null,
+});
+
+const defaultMealShortcutForm = (): MealShortcutInput => ({
+  serviceId: null,
+  name: '',
+  notes: null,
+  items: [{ productId: '', quantity: 1 }],
+});
+
 const defaultPreferences = (): UserPreferencesInput => ({
   allergies: [],
   dislikes: [],
@@ -278,6 +314,42 @@ const formatLlmSelection = (settings?: UserLlmSettingsInput | null) => {
   return `${providerLabels[settings.provider]} / ${settings.modelId}`;
 };
 
+const emptyNutritionTotals = (): NutritionTotals => ({
+  calories: 0,
+  protein: 0,
+  fat: 0,
+  carbs: 0,
+});
+
+const multiplyNutrition = (
+  value: number | null,
+  quantity: number,
+  currentTotal: number,
+) => {
+  return (
+    Math.round((currentTotal + (value === null ? 0 : value * quantity)) * 10) /
+    10
+  );
+};
+
+const formatNutritionValue = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+
+  return value.toLocaleString('ja-JP', {
+    maximumFractionDigits: 1,
+  });
+};
+
+const formatNutritionSummary = (totals: NutritionTotals) => {
+  return `kcal ${formatNutritionValue(totals.calories)} / P ${formatNutritionValue(totals.protein)} / F ${formatNutritionValue(totals.fat)} / C ${formatNutritionValue(totals.carbs)}`;
+};
+
+const formatMealSourceLabel = (sourceType: MealLogRecord['sourceType']) => {
+  return sourceType === 'shortcut' ? 'ショートカット' : '手入力';
+};
+
 const fallbackModelOption = (modelId: string): LlmModelOption => ({
   id: modelId,
   name: `現在の保存値 (${modelId})`,
@@ -344,6 +416,13 @@ const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<IngredientRecord[]>([]);
   const [meals, setMeals] = useState<MealLogRecord[]>([]);
+  const [subscriptionServices, setSubscriptionServices] = useState<
+    SubscriptionServiceRecord[]
+  >([]);
+  const [subscriptionProducts, setSubscriptionProducts] = useState<
+    SubscriptionProductRecord[]
+  >([]);
+  const [mealShortcuts, setMealShortcuts] = useState<MealShortcutRecord[]>([]);
   const [preferences, setPreferences] = useState<UserPreferencesInput>(
     defaultPreferences(),
   );
@@ -364,6 +443,16 @@ const App = () => {
     defaultIngredientForm(),
   );
   const [mealForm, setMealForm] = useState<MealLogInput>(defaultMealForm());
+  const [mealComposerMode, setMealComposerMode] =
+    useState<MealComposerMode>('manual');
+  const [selectedShortcutId, setSelectedShortcutId] = useState('');
+  const [subscriptionServiceForm, setSubscriptionServiceForm] =
+    useState<SubscriptionServiceInput>(defaultSubscriptionServiceForm());
+  const [subscriptionProductForm, setSubscriptionProductForm] =
+    useState<SubscriptionProductInput>(defaultSubscriptionProductForm());
+  const [mealShortcutForm, setMealShortcutForm] = useState<MealShortcutInput>(
+    defaultMealShortcutForm(),
+  );
   const [preferenceDraft, setPreferenceDraft] = useState({
     allergies: [] as string[],
     dislikes: [] as string[],
@@ -376,9 +465,21 @@ const App = () => {
     null,
   );
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
+  const [editingSubscriptionServiceId, setEditingSubscriptionServiceId] =
+    useState<string | null>(null);
+  const [editingSubscriptionProductId, setEditingSubscriptionProductId] =
+    useState<string | null>(null);
+  const [editingMealShortcutId, setEditingMealShortcutId] = useState<
+    string | null
+  >(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [ingredientModalOpen, setIngredientModalOpen] = useState(false);
   const [mealModalOpen, setMealModalOpen] = useState(false);
+  const [subscriptionServiceModalOpen, setSubscriptionServiceModalOpen] =
+    useState(false);
+  const [subscriptionProductModalOpen, setSubscriptionProductModalOpen] =
+    useState(false);
+  const [mealShortcutModalOpen, setMealShortcutModalOpen] = useState(false);
   const [suggestionModalOpen, setSuggestionModalOpen] = useState(false);
   const [suggestionModalState, setSuggestionModalState] = useState<
     'idle' | 'loading' | 'ready' | 'error'
@@ -419,12 +520,18 @@ const App = () => {
       const [
         nextIngredients,
         nextMeals,
+        nextSubscriptionServices,
+        nextSubscriptionProducts,
+        nextMealShortcuts,
         nextPreferences,
         nextSuggestion,
         nextLlmSettings,
       ] = await Promise.all([
         api.getIngredients(),
         api.getMeals(),
+        api.getSubscriptionServices(),
+        api.getSubscriptionProducts(),
+        api.getMealShortcuts(),
         api.getPreferences(),
         api.getTodaySuggestion(),
         api.getLlmSettings(),
@@ -434,6 +541,9 @@ const App = () => {
 
       setIngredients(nextIngredients);
       setMeals(nextMeals);
+      setSubscriptionServices(nextSubscriptionServices);
+      setSubscriptionProducts(nextSubscriptionProducts);
+      setMealShortcuts(nextMealShortcuts);
       setPreferences(nextPreferences);
       setLlmSettings(nextLlmSettings);
       setLlmDraft({
@@ -532,11 +642,23 @@ const App = () => {
 
     setIngredientModalOpen(false);
     setMealModalOpen(false);
+    setSubscriptionServiceModalOpen(false);
+    setSubscriptionProductModalOpen(false);
+    setMealShortcutModalOpen(false);
 
     if (pathname !== dashboardRoutePaths.overview) {
       void navigate({ to: dashboardRoutePaths.overview });
     }
   }, [navigate, pathname, session]);
+
+  useEffect(() => {
+    if (
+      selectedShortcutId &&
+      !mealShortcuts.some((shortcut) => shortcut.id === selectedShortcutId)
+    ) {
+      setSelectedShortcutId('');
+    }
+  }, [mealShortcuts, selectedShortcutId]);
 
   const toggleTheme = () => {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
@@ -557,6 +679,28 @@ const App = () => {
     setMealModalOpen(false);
     setEditingMealId(null);
     setMealForm(defaultMealForm());
+    setMealComposerMode('manual');
+    setSelectedShortcutId('');
+  };
+
+  const closeSubscriptionServiceModal = () => {
+    setSubscriptionServiceModalOpen(false);
+    setEditingSubscriptionServiceId(null);
+    setSubscriptionServiceForm(defaultSubscriptionServiceForm());
+  };
+
+  const closeSubscriptionProductModal = () => {
+    setSubscriptionProductModalOpen(false);
+    setEditingSubscriptionProductId(null);
+    setSubscriptionProductForm(
+      defaultSubscriptionProductForm(subscriptionServices[0]?.id ?? ''),
+    );
+  };
+
+  const closeMealShortcutModal = () => {
+    setMealShortcutModalOpen(false);
+    setEditingMealShortcutId(null);
+    setMealShortcutForm(defaultMealShortcutForm());
   };
 
   const closeSuggestionModal = () => {
@@ -576,8 +720,73 @@ const App = () => {
   const openMealComposer = () => {
     setEditingMealId(null);
     setMealForm(defaultMealForm());
+    setMealComposerMode('manual');
+    setSelectedShortcutId('');
     setMealModalOpen(true);
     navigateTo('meals');
+  };
+
+  const openMealComposerFromShortcut = (shortcutId?: string) => {
+    if (!mealShortcuts.length) {
+      setError('先に定期便ショートカットを登録してください。');
+      navigateTo('subscriptions');
+      return;
+    }
+
+    setEditingMealId(null);
+    setMealForm(defaultMealForm());
+    setMealComposerMode('shortcut');
+    setSelectedShortcutId(shortcutId ?? mealShortcuts[0]?.id ?? '');
+    setMealModalOpen(true);
+    navigateTo('meals');
+  };
+
+  const openSubscriptionServiceComposer = () => {
+    setEditingSubscriptionServiceId(null);
+    setSubscriptionServiceForm(defaultSubscriptionServiceForm());
+    setSubscriptionServiceModalOpen(true);
+    navigateTo('subscriptions');
+  };
+
+  const openSubscriptionProductComposer = (serviceId?: string) => {
+    if (!subscriptionServices.length) {
+      setError('先に定期便サービスを登録してください。');
+      openSubscriptionServiceComposer();
+      return;
+    }
+
+    setEditingSubscriptionProductId(null);
+    setSubscriptionProductForm(
+      defaultSubscriptionProductForm(
+        serviceId ?? subscriptionServices[0]?.id ?? '',
+      ),
+    );
+    setSubscriptionProductModalOpen(true);
+    navigateTo('subscriptions');
+  };
+
+  const openMealShortcutComposer = (serviceId?: string | null) => {
+    if (!subscriptionProducts.length) {
+      setError('先に定期便商品を登録してください。');
+      navigateTo('subscriptions');
+      return;
+    }
+
+    const fallbackProduct =
+      subscriptionProducts.find((product) => product.serviceId === serviceId) ??
+      subscriptionProducts[0];
+
+    setEditingMealShortcutId(null);
+    setMealShortcutForm({
+      serviceId: serviceId ?? fallbackProduct?.serviceId ?? null,
+      name: '',
+      notes: null,
+      items: fallbackProduct
+        ? [{ productId: fallbackProduct.id, quantity: 1 }]
+        : [{ productId: '', quantity: 1 }],
+    });
+    setMealShortcutModalOpen(true);
+    navigateTo('subscriptions');
   };
 
   const handleGoogleSignIn = async () => {
@@ -641,6 +850,9 @@ const App = () => {
       setSession(null);
       setIngredients([]);
       setMeals([]);
+      setSubscriptionServices([]);
+      setSubscriptionProducts([]);
+      setMealShortcuts([]);
       setPreferences(defaultPreferences());
       setLlmSettings(defaultLlmRecord());
       setLlmDraft(defaultLlmSettings());
@@ -650,6 +862,9 @@ const App = () => {
       setSuggestion(null);
       closeIngredientModal();
       closeMealModal();
+      closeSubscriptionServiceModal();
+      closeSubscriptionProductModal();
+      closeMealShortcutModal();
       closeSuggestionModal();
     } catch (nextError) {
       setError(toErrorMessage(nextError, 'ログアウトに失敗しました。'));
@@ -692,6 +907,20 @@ const App = () => {
     try {
       if (editingMealId) {
         await api.updateMeal(editingMealId, mealForm);
+      } else if (mealComposerMode === 'shortcut') {
+        if (!selectedShortcutId) {
+          throw new Error('食事ショートカットを選択してください。');
+        }
+
+        const payload: CreateMealFromShortcutInput = {
+          shortcutId: selectedShortcutId,
+          consumedOn: mealForm.consumedOn,
+          mealType: mealForm.mealType,
+          satisfaction: mealForm.satisfaction,
+          note: mealForm.note,
+        };
+
+        await api.createMealFromShortcut(payload);
       } else {
         await api.createMeal(mealForm);
       }
@@ -699,6 +928,85 @@ const App = () => {
       await refreshAfterMutation();
     } catch (nextError) {
       setError(toErrorMessage(nextError, '食事記録の保存に失敗しました。'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSubscriptionServiceSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+
+    try {
+      if (editingSubscriptionServiceId) {
+        await api.updateSubscriptionService(
+          editingSubscriptionServiceId,
+          subscriptionServiceForm,
+        );
+      } else {
+        await api.createSubscriptionService(subscriptionServiceForm);
+      }
+
+      await loadDashboard();
+      closeSubscriptionServiceModal();
+    } catch (nextError) {
+      setError(
+        toErrorMessage(nextError, '定期便サービスの保存に失敗しました。'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSubscriptionProductSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+
+    try {
+      if (editingSubscriptionProductId) {
+        await api.updateSubscriptionProduct(
+          editingSubscriptionProductId,
+          subscriptionProductForm,
+        );
+      } else {
+        await api.createSubscriptionProduct(subscriptionProductForm);
+      }
+
+      await loadDashboard();
+      closeSubscriptionProductModal();
+    } catch (nextError) {
+      setError(toErrorMessage(nextError, '定期便商品の保存に失敗しました。'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleMealShortcutSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+
+    try {
+      if (editingMealShortcutId) {
+        await api.updateMealShortcut(editingMealShortcutId, mealShortcutForm);
+      } else {
+        await api.createMealShortcut(mealShortcutForm);
+      }
+
+      await loadDashboard();
+      closeMealShortcutModal();
+    } catch (nextError) {
+      setError(
+        toErrorMessage(nextError, '食事ショートカットの保存に失敗しました。'),
+      );
     } finally {
       setBusy(false);
     }
@@ -940,8 +1248,57 @@ const App = () => {
       ...meal,
       note: meal.note ?? null,
     });
+    setMealComposerMode('manual');
+    setSelectedShortcutId(meal.shortcutId ?? '');
     setMealModalOpen(true);
     navigateTo('meals');
+  };
+
+  const startSubscriptionServiceEdit = (
+    subscriptionService: SubscriptionServiceRecord,
+  ) => {
+    setEditingSubscriptionServiceId(subscriptionService.id);
+    setSubscriptionServiceForm({
+      name: subscriptionService.name,
+      notes: subscriptionService.notes ?? null,
+    });
+    setSubscriptionServiceModalOpen(true);
+    navigateTo('subscriptions');
+  };
+
+  const startSubscriptionProductEdit = (
+    subscriptionProduct: SubscriptionProductRecord,
+  ) => {
+    setEditingSubscriptionProductId(subscriptionProduct.id);
+    setSubscriptionProductForm({
+      serviceId: subscriptionProduct.serviceId,
+      name: subscriptionProduct.name,
+      sku: subscriptionProduct.sku ?? null,
+      stockQuantity: subscriptionProduct.stockQuantity,
+      stockUnit: subscriptionProduct.stockUnit,
+      calories: subscriptionProduct.calories,
+      protein: subscriptionProduct.protein,
+      fat: subscriptionProduct.fat,
+      carbs: subscriptionProduct.carbs,
+      notes: subscriptionProduct.notes ?? null,
+    });
+    setSubscriptionProductModalOpen(true);
+    navigateTo('subscriptions');
+  };
+
+  const startMealShortcutEdit = (shortcut: MealShortcutRecord) => {
+    setEditingMealShortcutId(shortcut.id);
+    setMealShortcutForm({
+      serviceId: shortcut.serviceId,
+      name: shortcut.name,
+      notes: shortcut.notes ?? null,
+      items: shortcut.items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+      })),
+    });
+    setMealShortcutModalOpen(true);
+    navigateTo('subscriptions');
   };
 
   const deleteIngredient = async (id: string) => {
@@ -972,6 +1329,52 @@ const App = () => {
     }
   };
 
+  const deleteSubscriptionService = async (id: string) => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      await api.deleteSubscriptionService(id);
+      await loadDashboard();
+    } catch (nextError) {
+      setError(
+        toErrorMessage(nextError, '定期便サービスの削除に失敗しました。'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteSubscriptionProduct = async (id: string) => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      await api.deleteSubscriptionProduct(id);
+      await loadDashboard();
+    } catch (nextError) {
+      setError(toErrorMessage(nextError, '定期便商品の削除に失敗しました。'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteMealShortcut = async (id: string) => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      await api.deleteMealShortcut(id);
+      await loadDashboard();
+    } catch (nextError) {
+      setError(
+        toErrorMessage(nextError, '食事ショートカットの削除に失敗しました。'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const expiringSoon = ingredients.filter(
     (ingredient) =>
       ingredient.expiresOn &&
@@ -983,6 +1386,107 @@ const App = () => {
 
   const latestMeals = meals.slice(0, 5);
   const recentIngredients = ingredients.slice(0, 8);
+  const subscriptionProductMap = useMemo(
+    () => new Map(subscriptionProducts.map((product) => [product.id, product])),
+    [subscriptionProducts],
+  );
+  const availableShortcutProducts = useMemo(() => {
+    if (!mealShortcutForm.serviceId) {
+      return subscriptionProducts;
+    }
+
+    return subscriptionProducts.filter(
+      (product) => product.serviceId === mealShortcutForm.serviceId,
+    );
+  }, [mealShortcutForm.serviceId, subscriptionProducts]);
+  const selectedShortcut = useMemo(
+    () =>
+      mealShortcuts.find((shortcut) => shortcut.id === selectedShortcutId) ??
+      null,
+    [mealShortcuts, selectedShortcutId],
+  );
+  const selectedShortcutStockIssue = useMemo(() => {
+    if (!selectedShortcut) {
+      return null;
+    }
+
+    return (
+      selectedShortcut.items.find(
+        (item) => item.stockQuantity < item.quantity,
+      ) ?? null
+    );
+  }, [selectedShortcut]);
+  const mealShortcutDraftResolvedItems = useMemo(
+    () =>
+      mealShortcutForm.items
+        .map((item) => {
+          const product = subscriptionProductMap.get(item.productId);
+          if (!product) {
+            return null;
+          }
+
+          return {
+            ...item,
+            productName: product.name,
+            serviceName: product.serviceName,
+            stockQuantity: product.stockQuantity,
+            stockUnit: product.stockUnit,
+            calories: product.calories,
+            protein: product.protein,
+            fat: product.fat,
+            carbs: product.carbs,
+          };
+        })
+        .filter(
+          (
+            item,
+          ): item is {
+            productId: string;
+            quantity: number;
+            productName: string;
+            serviceName: string;
+            stockQuantity: number;
+            stockUnit: SubscriptionProductRecord['stockUnit'];
+            calories: number | null;
+            protein: number | null;
+            fat: number | null;
+            carbs: number | null;
+          } => item !== null,
+        ),
+    [mealShortcutForm.items, subscriptionProductMap],
+  );
+  const mealShortcutDraftTotals = useMemo(
+    () =>
+      mealShortcutDraftResolvedItems.reduce<NutritionTotals>(
+        (totals, item) => ({
+          calories: multiplyNutrition(
+            item.calories,
+            item.quantity,
+            totals.calories,
+          ),
+          protein: multiplyNutrition(
+            item.protein,
+            item.quantity,
+            totals.protein,
+          ),
+          fat: multiplyNutrition(item.fat, item.quantity, totals.fat),
+          carbs: multiplyNutrition(item.carbs, item.quantity, totals.carbs),
+        }),
+        emptyNutritionTotals(),
+      ),
+    [mealShortcutDraftResolvedItems],
+  );
+  const mealShortcutDraftStockIssue = useMemo(
+    () =>
+      mealShortcutDraftResolvedItems.find(
+        (item) => item.stockQuantity < item.quantity,
+      ) ?? null,
+    [mealShortcutDraftResolvedItems],
+  );
+  const editingMealRecord = useMemo(
+    () => meals.find((meal) => meal.id === editingMealId) ?? null,
+    [editingMealId, meals],
+  );
   const ratedMeals = meals.filter(
     (meal) => typeof meal.satisfaction === 'number',
   );
@@ -1034,6 +1538,55 @@ const App = () => {
     ? '保存済みを開く'
     : '生成する';
 
+  const updateShortcutItem = (
+    index: number,
+    patch: Partial<MealShortcutInput['items'][number]>,
+  ) => {
+    setMealShortcutForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              ...patch,
+            }
+          : item,
+      ),
+    }));
+  };
+
+  const addShortcutItem = () => {
+    const nextProduct =
+      availableShortcutProducts.find(
+        (product) =>
+          !mealShortcutForm.items.some((item) => item.productId === product.id),
+      ) ?? availableShortcutProducts[0];
+
+    setMealShortcutForm((current) => ({
+      ...current,
+      items: [
+        ...current.items,
+        {
+          productId: nextProduct?.id ?? '',
+          quantity: 1,
+        },
+      ],
+    }));
+  };
+
+  const removeShortcutItem = (index: number) => {
+    setMealShortcutForm((current) => {
+      if (current.items.length === 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        items: current.items.filter((_, itemIndex) => itemIndex !== index),
+      };
+    });
+  };
+
   const navigationItems: Array<{
     id: DashboardView;
     label: string;
@@ -1063,6 +1616,12 @@ const App = () => {
       label: '食事',
       description: '記録と満足度',
       badge: `${meals.length}`,
+    },
+    {
+      id: 'subscriptions',
+      label: '定期便',
+      description: 'サービスとショートカット',
+      badge: `${mealShortcuts.length}`,
     },
     {
       id: 'settings',
@@ -1229,12 +1788,12 @@ const App = () => {
             <strong>{expiringSoon.length}</strong>
           </article>
           <article className="metric-card">
-            <span>平均満足度</span>
-            <strong>{averageSatisfaction}</strong>
+            <span>定期便商品</span>
+            <strong>{subscriptionProducts.length}</strong>
           </article>
           <article className="metric-card">
-            <span>利用中 AI</span>
-            <strong>{providerLabels[llmSettings.provider]}</strong>
+            <span>食事ショートカット</span>
+            <strong>{mealShortcuts.length}</strong>
           </article>
         </section>
 
@@ -1328,6 +1887,13 @@ const App = () => {
               <button
                 type="button"
                 className="secondary-button quick-action-button"
+                onClick={() => navigateTo('subscriptions')}
+              >
+                定期便管理
+              </button>
+              <button
+                type="button"
+                className="secondary-button quick-action-button"
                 onClick={openIngredientComposer}
               >
                 食材登録
@@ -1342,6 +1908,13 @@ const App = () => {
             </div>
 
             <div className="preference-preview">
+              <p>
+                <strong>定期便サービス:</strong> {subscriptionServices.length}{' '}
+                件
+              </p>
+              <p>
+                <strong>ショートカット:</strong> {mealShortcuts.length} 件
+              </p>
               <p>
                 <strong>アレルギー:</strong>{' '}
                 {preferences.allergies.length
@@ -1623,13 +2196,44 @@ const App = () => {
               meals.map((meal) => (
                 <div key={meal.id} className="list-row list-row-detailed">
                   <div className="list-copy">
-                    <strong>{meal.menuName}</strong>
+                    <div className="list-copy-heading">
+                      <strong>{meal.menuName}</strong>
+                      <span
+                        className={`status-pill ${meal.sourceType === 'shortcut' ? 'available' : 'neutral'}`}
+                      >
+                        {formatMealSourceLabel(meal.sourceType)}
+                      </span>
+                    </div>
                     <p>
                       {meal.consumedOn} / {meal.mealType}
                       {meal.satisfaction
                         ? ` / 満足度 ${meal.satisfaction}`
                         : ''}
                     </p>
+                    {meal.sourceType === 'shortcut' &&
+                    meal.consumedSnapshot.length ? (
+                      <p className="muted-copy">
+                        {meal.consumedSnapshot
+                          .map(
+                            (item) =>
+                              `${item.productName} x${item.quantity}${item.stockUnit}`,
+                          )
+                          .join(' / ')}
+                      </p>
+                    ) : null}
+                    {meal.calories !== null ||
+                    meal.protein !== null ||
+                    meal.fat !== null ||
+                    meal.carbs !== null ? (
+                      <p className="muted-copy">
+                        {formatNutritionSummary({
+                          calories: meal.calories ?? 0,
+                          protein: meal.protein ?? 0,
+                          fat: meal.fat ?? 0,
+                          carbs: meal.carbs ?? 0,
+                        })}
+                      </p>
+                    ) : null}
                     {meal.note ? (
                       <p className="muted-copy">{meal.note}</p>
                     ) : null}
@@ -1702,11 +2306,347 @@ const App = () => {
               <button
                 type="button"
                 className="secondary-button quick-action-button"
+                onClick={() => openMealComposerFromShortcut()}
+                disabled={!mealShortcuts.length}
+              >
+                ショートカットで記録
+              </button>
+              <button
+                type="button"
+                className="secondary-button quick-action-button"
                 onClick={handleGenerateSuggestion}
                 disabled={busy}
               >
                 {suggestion ? '保存済み提案を開く' : '今日の提案を生成'}
               </button>
+            </div>
+          </article>
+        </div>
+      </section>
+    );
+  };
+
+  const renderSubscriptionsView = () => {
+    return (
+      <section className="content-grid subscriptions-grid">
+        <div className="side-stack">
+          <article className="panel section-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Subscription Services</p>
+                <h2>契約サービス</h2>
+              </div>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={openSubscriptionServiceComposer}
+              >
+                サービスを追加
+              </button>
+            </div>
+
+            <div className="summary-strip">
+              <div className="summary-chip">
+                <span>サービス数</span>
+                <strong>{subscriptionServices.length}</strong>
+              </div>
+              <div className="summary-chip">
+                <span>商品数</span>
+                <strong>{subscriptionProducts.length}</strong>
+              </div>
+              <div className="summary-chip">
+                <span>ショートカット</span>
+                <strong>{mealShortcuts.length}</strong>
+              </div>
+            </div>
+
+            <div className="list-stack">
+              {subscriptionServices.length ? (
+                subscriptionServices.map((service) => (
+                  <div
+                    key={service.id}
+                    className="list-row list-row-detailed subscription-row"
+                  >
+                    <div className="list-copy">
+                      <div className="list-copy-heading">
+                        <strong>{service.name}</strong>
+                        <span className="status-pill neutral">
+                          {
+                            subscriptionProducts.filter(
+                              (product) => product.serviceId === service.id,
+                            ).length
+                          }{' '}
+                          商品
+                        </span>
+                      </div>
+                      {service.notes ? (
+                        <p className="muted-copy">{service.notes}</p>
+                      ) : (
+                        <p className="muted-copy">
+                          このサービスに紐づく商品とショートカットを管理できます。
+                        </p>
+                      )}
+                    </div>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          openSubscriptionProductComposer(service.id)
+                        }
+                      >
+                        商品追加
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => openMealShortcutComposer(service.id)}
+                        disabled={
+                          !subscriptionProducts.some(
+                            (product) => product.serviceId === service.id,
+                          )
+                        }
+                      >
+                        ショートカット作成
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => startSubscriptionServiceEdit(service)}
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => deleteSubscriptionService(service.id)}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="empty-copy">
+                  まずは Base Bread や nosh
+                  などの契約サービスを登録してください。
+                </p>
+              )}
+            </div>
+          </article>
+
+          <article className="panel section-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Subscription Products</p>
+                <h2>届く商品</h2>
+              </div>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => openSubscriptionProductComposer()}
+                disabled={!subscriptionServices.length}
+              >
+                商品を追加
+              </button>
+            </div>
+
+            <div className="list-stack">
+              {subscriptionProducts.length ? (
+                subscriptionProducts.map((product) => (
+                  <div key={product.id} className="list-row list-row-detailed">
+                    <div className="list-copy">
+                      <div className="list-copy-heading">
+                        <strong>{product.name}</strong>
+                        <span
+                          className={`status-pill ${product.stockQuantity > 0 ? 'available' : 'unavailable'}`}
+                        >
+                          在庫 {product.stockQuantity}
+                          {product.stockUnit}
+                        </span>
+                      </div>
+                      <p>
+                        {product.serviceName}
+                        {product.sku ? ` / SKU ${product.sku}` : ''}
+                      </p>
+                      <p className="muted-copy">
+                        {formatNutritionSummary({
+                          calories: product.calories ?? 0,
+                          protein: product.protein ?? 0,
+                          fat: product.fat ?? 0,
+                          carbs: product.carbs ?? 0,
+                        })}
+                      </p>
+                      {product.notes ? (
+                        <p className="muted-copy">{product.notes}</p>
+                      ) : null}
+                    </div>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => startSubscriptionProductEdit(product)}
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => deleteSubscriptionProduct(product.id)}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="empty-copy">
+                  サービスを作成したら、届く商品ごとの在庫と栄養を登録してください。
+                </p>
+              )}
+            </div>
+          </article>
+        </div>
+
+        <div className="side-stack">
+          <article className="panel section-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Meal Shortcuts</p>
+                <h2>食事ショートカット</h2>
+              </div>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => openMealShortcutComposer()}
+                disabled={!subscriptionProducts.length}
+              >
+                ショートカットを追加
+              </button>
+            </div>
+
+            <div className="list-stack">
+              {mealShortcuts.length ? (
+                mealShortcuts.map((shortcut) => (
+                  <article key={shortcut.id} className="shortcut-card">
+                    <div className="list-copy">
+                      <div className="list-copy-heading">
+                        <strong>{shortcut.name}</strong>
+                        <span className="status-pill neutral">
+                          {shortcut.serviceName ?? '横断'}
+                        </span>
+                      </div>
+                      {shortcut.notes ? (
+                        <p className="muted-copy">{shortcut.notes}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="shortcut-item-list">
+                      {shortcut.items.map((item) => (
+                        <div key={item.id} className="shortcut-item-row">
+                          <div>
+                            <strong>{item.productName}</strong>
+                            <p>
+                              {item.quantity}
+                              {item.stockUnit} 使用 / 在庫 {item.stockQuantity}
+                              {item.stockUnit}
+                            </p>
+                          </div>
+                          <span
+                            className={`status-pill ${item.stockQuantity >= item.quantity ? 'available' : 'unavailable'}`}
+                          >
+                            {item.stockQuantity >= item.quantity
+                              ? 'OK'
+                              : '不足'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="summary-strip nutrition-grid">
+                      <div className="summary-chip">
+                        <span>kcal</span>
+                        <strong>
+                          {formatNutritionValue(shortcut.totals.calories)}
+                        </strong>
+                      </div>
+                      <div className="summary-chip">
+                        <span>たんぱく質</span>
+                        <strong>
+                          {formatNutritionValue(shortcut.totals.protein)}
+                        </strong>
+                      </div>
+                      <div className="summary-chip">
+                        <span>脂質</span>
+                        <strong>
+                          {formatNutritionValue(shortcut.totals.fat)}
+                        </strong>
+                      </div>
+                      <div className="summary-chip">
+                        <span>炭水化物</span>
+                        <strong>
+                          {formatNutritionValue(shortcut.totals.carbs)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() =>
+                          openMealComposerFromShortcut(shortcut.id)
+                        }
+                      >
+                        この内容で記録
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => startMealShortcutEdit(shortcut)}
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => deleteMealShortcut(shortcut.id)}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <p className="empty-copy">
+                  商品を束ねたショートカットを作ると、食事記録を 1
+                  回で追加できます。
+                </p>
+              )}
+            </div>
+          </article>
+
+          <article className="panel section-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Flow</p>
+                <h2>記録フロー</h2>
+              </div>
+            </div>
+            <div className="preference-preview">
+              <p>
+                <strong>1.</strong> サービスを登録して届く商品を追加
+              </p>
+              <p>
+                <strong>2.</strong> 複数商品をまとめた食事ショートカットを作成
+              </p>
+              <p>
+                <strong>3.</strong> 食事登録モーダルからショートカットを選択
+              </p>
+              <p>
+                <strong>4.</strong>{' '}
+                在庫が足りている場合だけ記録と在庫減算を同時に実行
+              </p>
             </div>
           </article>
         </div>
@@ -2012,6 +2952,8 @@ const App = () => {
         return renderIngredientsView();
       case 'meals':
         return renderMealsView();
+      case 'subscriptions':
+        return renderSubscriptionsView();
       case 'settings':
         return renderSettingsView();
       default:
@@ -2052,6 +2994,27 @@ const App = () => {
           >
             記録を追加
           </button>
+        );
+      case 'subscriptions':
+        return (
+          <>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => openSubscriptionProductComposer()}
+              disabled={!subscriptionServices.length}
+            >
+              商品を追加
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => openMealShortcutComposer()}
+              disabled={!subscriptionProducts.length}
+            >
+              ショートカットを追加
+            </button>
+          </>
         );
       default:
         return null;
@@ -2569,6 +3532,38 @@ const App = () => {
         onClose={closeMealModal}
       >
         <form className="data-form modal-form" onSubmit={handleMealSubmit}>
+          {!editingMealId ? (
+            <div
+              className="composer-toggle"
+              role="tablist"
+              aria-label="記録方法"
+            >
+              <button
+                type="button"
+                className={`composer-toggle-button ${mealComposerMode === 'manual' ? 'active' : ''}`}
+                onClick={() => {
+                  setMealComposerMode('manual');
+                  setSelectedShortcutId('');
+                }}
+              >
+                通常入力
+              </button>
+              <button
+                type="button"
+                className={`composer-toggle-button ${mealComposerMode === 'shortcut' ? 'active' : ''}`}
+                onClick={() => {
+                  setMealComposerMode('shortcut');
+                  setSelectedShortcutId(
+                    (current) => current || mealShortcuts[0]?.id || '',
+                  );
+                }}
+                disabled={!mealShortcuts.length}
+              >
+                ショートカット
+              </button>
+            </div>
+          ) : null}
+
           <div className="form-grid">
             <label>
               <span>日付</span>
@@ -2601,20 +3596,42 @@ const App = () => {
                 ))}
               </select>
             </label>
-            <label className="full-width">
-              <span>メニュー名</span>
-              <input
-                value={mealForm.menuName}
-                onChange={(event) =>
-                  setMealForm((current) => ({
-                    ...current,
-                    menuName: event.target.value,
-                  }))
-                }
-                placeholder="例: 鶏むね肉のソテー"
-                required
-              />
-            </label>
+
+            {editingMealId || mealComposerMode === 'manual' ? (
+              <label className="full-width">
+                <span>メニュー名</span>
+                <input
+                  value={mealForm.menuName}
+                  onChange={(event) =>
+                    setMealForm((current) => ({
+                      ...current,
+                      menuName: event.target.value,
+                    }))
+                  }
+                  placeholder="例: 鶏むね肉のソテー"
+                  required
+                />
+              </label>
+            ) : (
+              <label className="full-width">
+                <span>食事ショートカット</span>
+                <select
+                  value={selectedShortcutId}
+                  onChange={(event) =>
+                    setSelectedShortcutId(event.target.value)
+                  }
+                  required
+                >
+                  <option value="">選択してください</option>
+                  {mealShortcuts.map((shortcut) => (
+                    <option key={shortcut.id} value={shortcut.id}>
+                      {shortcut.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <label>
               <span>満足度</span>
               <input
@@ -2643,16 +3660,628 @@ const App = () => {
                 rows={3}
               />
             </label>
+
+            {!editingMealId && mealComposerMode === 'shortcut' ? (
+              <div className="full-width shortcut-preview-card">
+                {selectedShortcut ? (
+                  <>
+                    <div className="list-copy">
+                      <div className="list-copy-heading">
+                        <strong>{selectedShortcut.name}</strong>
+                        <span className="status-pill neutral">
+                          {selectedShortcut.serviceName ?? '横断'}
+                        </span>
+                      </div>
+                      <p className="muted-copy">
+                        {selectedShortcut.notes ??
+                          '複数商品をまとめて在庫消費しながら記録します。'}
+                      </p>
+                    </div>
+
+                    <div className="shortcut-item-list">
+                      {selectedShortcut.items.map((item) => (
+                        <div key={item.id} className="shortcut-item-row">
+                          <div>
+                            <strong>{item.productName}</strong>
+                            <p>
+                              {item.quantity}
+                              {item.stockUnit} 使用 / 在庫 {item.stockQuantity}
+                              {item.stockUnit}
+                            </p>
+                          </div>
+                          <span
+                            className={`status-pill ${item.stockQuantity >= item.quantity ? 'available' : 'unavailable'}`}
+                          >
+                            {item.stockQuantity >= item.quantity
+                              ? '在庫あり'
+                              : '不足'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="summary-strip nutrition-grid">
+                      <div className="summary-chip">
+                        <span>kcal</span>
+                        <strong>
+                          {formatNutritionValue(
+                            selectedShortcut.totals.calories,
+                          )}
+                        </strong>
+                      </div>
+                      <div className="summary-chip">
+                        <span>たんぱく質</span>
+                        <strong>
+                          {formatNutritionValue(
+                            selectedShortcut.totals.protein,
+                          )}
+                        </strong>
+                      </div>
+                      <div className="summary-chip">
+                        <span>脂質</span>
+                        <strong>
+                          {formatNutritionValue(selectedShortcut.totals.fat)}
+                        </strong>
+                      </div>
+                      <div className="summary-chip">
+                        <span>炭水化物</span>
+                        <strong>
+                          {formatNutritionValue(selectedShortcut.totals.carbs)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {selectedShortcutStockIssue ? (
+                      <p className="error-banner shortcut-stock-banner">
+                        {selectedShortcutStockIssue.productName}{' '}
+                        の在庫が不足しています。 必要{' '}
+                        {selectedShortcutStockIssue.quantity}
+                        {selectedShortcutStockIssue.stockUnit} / 現在{' '}
+                        {selectedShortcutStockIssue.stockQuantity}
+                        {selectedShortcutStockIssue.stockUnit}
+                      </p>
+                    ) : (
+                      <p className="muted-copy">
+                        実行時に在庫チェックを行い、問題がなければ食事記録と在庫減算を同時に行います。
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="empty-copy">
+                    食事ショートカットを選ぶと使用商品と合計栄養を表示します。
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {editingMealRecord?.sourceType === 'shortcut' ? (
+              <div className="full-width shortcut-preview-card">
+                <p className="muted-copy">
+                  この記録はショートカット由来です。元の消費内容は保持され、ここでは日付・区分・メモなどを調整できます。
+                </p>
+                <div className="shortcut-item-list">
+                  {editingMealRecord.consumedSnapshot.map((item) => (
+                    <div
+                      key={`${item.productId}-${item.productName}`}
+                      className="shortcut-item-row"
+                    >
+                      <div>
+                        <strong>{item.productName}</strong>
+                        <p>
+                          {item.quantity}
+                          {item.stockUnit}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="form-actions">
-            <button type="submit" className="primary-button" disabled={busy}>
-              {editingMealId ? '記録を更新' : '記録を追加'}
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={
+                busy ||
+                (!editingMealId &&
+                  mealComposerMode === 'shortcut' &&
+                  (!selectedShortcut || Boolean(selectedShortcutStockIssue)))
+              }
+            >
+              {editingMealId
+                ? '記録を更新'
+                : mealComposerMode === 'shortcut'
+                  ? 'ショートカットで記録'
+                  : '記録を追加'}
             </button>
             <button
               type="button"
               className="secondary-button"
               onClick={closeMealModal}
+            >
+              キャンセル
+            </button>
+          </div>
+        </form>
+      </ModalShell>
+
+      <ModalShell
+        open={subscriptionServiceModalOpen}
+        title={
+          editingSubscriptionServiceId
+            ? 'Edit Subscription Service'
+            : 'New Subscription Service'
+        }
+        description={
+          editingSubscriptionServiceId
+            ? '定期便サービスを編集'
+            : '定期便サービスを追加'
+        }
+        onClose={closeSubscriptionServiceModal}
+      >
+        <form
+          className="data-form modal-form"
+          onSubmit={handleSubscriptionServiceSubmit}
+        >
+          <div className="form-grid">
+            <label className="full-width">
+              <span>サービス名</span>
+              <input
+                value={subscriptionServiceForm.name}
+                onChange={(event) =>
+                  setSubscriptionServiceForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="例: Base Bread / nosh"
+                required
+              />
+            </label>
+            <label className="full-width">
+              <span>メモ</span>
+              <textarea
+                value={subscriptionServiceForm.notes ?? ''}
+                onChange={(event) =>
+                  setSubscriptionServiceForm((current) => ({
+                    ...current,
+                    notes: asNullableText(event.target.value),
+                  }))
+                }
+                rows={3}
+              />
+            </label>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="primary-button" disabled={busy}>
+              {editingSubscriptionServiceId
+                ? 'サービスを更新'
+                : 'サービスを追加'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={closeSubscriptionServiceModal}
+            >
+              キャンセル
+            </button>
+          </div>
+        </form>
+      </ModalShell>
+
+      <ModalShell
+        open={subscriptionProductModalOpen}
+        title={
+          editingSubscriptionProductId
+            ? 'Edit Subscription Product'
+            : 'New Subscription Product'
+        }
+        description={
+          editingSubscriptionProductId ? '定期便商品を編集' : '定期便商品を追加'
+        }
+        onClose={closeSubscriptionProductModal}
+      >
+        <form
+          className="data-form modal-form"
+          onSubmit={handleSubscriptionProductSubmit}
+        >
+          <div className="form-grid">
+            <label>
+              <span>サービス</span>
+              <select
+                value={subscriptionProductForm.serviceId}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    serviceId: event.target.value,
+                  }))
+                }
+                required
+              >
+                {subscriptionServices.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>商品名</span>
+              <input
+                value={subscriptionProductForm.name}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="例: BASE BREAD チョコレート"
+                required
+              />
+            </label>
+            <label>
+              <span>SKU / 商品コード</span>
+              <input
+                value={subscriptionProductForm.sku ?? ''}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    sku: asNullableText(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>在庫数</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={subscriptionProductForm.stockQuantity}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    stockQuantity: Number(event.target.value),
+                  }))
+                }
+                required
+              />
+            </label>
+            <label>
+              <span>在庫単位</span>
+              <select
+                value={subscriptionProductForm.stockUnit}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    stockUnit: event.target
+                      .value as SubscriptionProductInput['stockUnit'],
+                  }))
+                }
+              >
+                {quantityUnits.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>カロリー</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={subscriptionProductForm.calories ?? ''}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    calories: asNullableNumber(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>たんぱく質</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={subscriptionProductForm.protein ?? ''}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    protein: asNullableNumber(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>脂質</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={subscriptionProductForm.fat ?? ''}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    fat: asNullableNumber(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>炭水化物</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={subscriptionProductForm.carbs ?? ''}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    carbs: asNullableNumber(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label className="full-width">
+              <span>メモ</span>
+              <textarea
+                value={subscriptionProductForm.notes ?? ''}
+                onChange={(event) =>
+                  setSubscriptionProductForm((current) => ({
+                    ...current,
+                    notes: asNullableText(event.target.value),
+                  }))
+                }
+                rows={3}
+              />
+            </label>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="primary-button" disabled={busy}>
+              {editingSubscriptionProductId ? '商品を更新' : '商品を追加'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={closeSubscriptionProductModal}
+            >
+              キャンセル
+            </button>
+          </div>
+        </form>
+      </ModalShell>
+
+      <ModalShell
+        open={mealShortcutModalOpen}
+        title={
+          editingMealShortcutId ? 'Edit Meal Shortcut' : 'New Meal Shortcut'
+        }
+        description={
+          editingMealShortcutId
+            ? '食事ショートカットを編集'
+            : '食事ショートカットを追加'
+        }
+        onClose={closeMealShortcutModal}
+      >
+        <form
+          className="data-form modal-form"
+          onSubmit={handleMealShortcutSubmit}
+        >
+          <div className="form-grid">
+            <label>
+              <span>対象サービス</span>
+              <select
+                value={mealShortcutForm.serviceId ?? ''}
+                onChange={(event) => {
+                  const nextServiceId = asNullableText(event.target.value);
+                  const nextProducts = nextServiceId
+                    ? subscriptionProducts.filter(
+                        (product) => product.serviceId === nextServiceId,
+                      )
+                    : subscriptionProducts;
+
+                  setMealShortcutForm((current) => ({
+                    ...current,
+                    serviceId: nextServiceId,
+                    items: current.items.map((item) => ({
+                      productId: nextProducts.some(
+                        (product) => product.id === item.productId,
+                      )
+                        ? item.productId
+                        : (nextProducts[0]?.id ?? ''),
+                      quantity: item.quantity,
+                    })),
+                  }));
+                }}
+              >
+                <option value="">サービス横断</option>
+                {subscriptionServices.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>ショートカット名</span>
+              <input
+                value={mealShortcutForm.name}
+                onChange={(event) =>
+                  setMealShortcutForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="例: 平日朝のBASEセット"
+                required
+              />
+            </label>
+            <label className="full-width">
+              <span>メモ</span>
+              <textarea
+                value={mealShortcutForm.notes ?? ''}
+                onChange={(event) =>
+                  setMealShortcutForm((current) => ({
+                    ...current,
+                    notes: asNullableText(event.target.value),
+                  }))
+                }
+                rows={3}
+              />
+            </label>
+
+            <div className="full-width shortcut-builder-panel">
+              <div className="panel-header">
+                <div>
+                  <span>構成商品</span>
+                  <p className="muted-copy">
+                    在庫を消費する商品と数量を指定します。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={addShortcutItem}
+                  disabled={!availableShortcutProducts.length}
+                >
+                  商品を追加
+                </button>
+              </div>
+
+              <div className="shortcut-item-list">
+                {mealShortcutForm.items.map((item, index) => {
+                  const currentProduct = subscriptionProductMap.get(
+                    item.productId,
+                  );
+                  const selectableProducts = currentProduct
+                    ? [
+                        ...availableShortcutProducts,
+                        ...(!availableShortcutProducts.some(
+                          (product) => product.id === currentProduct.id,
+                        )
+                          ? [currentProduct]
+                          : []),
+                      ]
+                    : availableShortcutProducts;
+
+                  return (
+                    <div
+                      key={`${item.productId}-${index}`}
+                      className="shortcut-builder-row"
+                    >
+                      <label className="full-width">
+                        <span>商品</span>
+                        <select
+                          value={item.productId}
+                          onChange={(event) =>
+                            updateShortcutItem(index, {
+                              productId: event.target.value,
+                            })
+                          }
+                          required
+                        >
+                          <option value="">選択してください</option>
+                          {selectableProducts.map((product) => (
+                            <option key={product.id} value={product.id}>
+                              {product.name} ({product.serviceName})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>数量</span>
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={item.quantity}
+                          onChange={(event) =>
+                            updateShortcutItem(index, {
+                              quantity: Number(event.target.value),
+                            })
+                          }
+                          required
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="ghost-button shortcut-remove-button"
+                        onClick={() => removeShortcutItem(index)}
+                        disabled={mealShortcutForm.items.length <= 1}
+                      >
+                        行を削除
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="summary-strip nutrition-grid">
+                <div className="summary-chip">
+                  <span>kcal</span>
+                  <strong>
+                    {formatNutritionValue(mealShortcutDraftTotals.calories)}
+                  </strong>
+                </div>
+                <div className="summary-chip">
+                  <span>たんぱく質</span>
+                  <strong>
+                    {formatNutritionValue(mealShortcutDraftTotals.protein)}
+                  </strong>
+                </div>
+                <div className="summary-chip">
+                  <span>脂質</span>
+                  <strong>
+                    {formatNutritionValue(mealShortcutDraftTotals.fat)}
+                  </strong>
+                </div>
+                <div className="summary-chip">
+                  <span>炭水化物</span>
+                  <strong>
+                    {formatNutritionValue(mealShortcutDraftTotals.carbs)}
+                  </strong>
+                </div>
+              </div>
+
+              {mealShortcutDraftStockIssue ? (
+                <p className="error-banner shortcut-stock-banner">
+                  {mealShortcutDraftStockIssue.productName}{' '}
+                  の在庫が不足しています。 必要{' '}
+                  {mealShortcutDraftStockIssue.quantity}
+                  {mealShortcutDraftStockIssue.stockUnit} / 現在{' '}
+                  {mealShortcutDraftStockIssue.stockQuantity}
+                  {mealShortcutDraftStockIssue.stockUnit}
+                </p>
+              ) : (
+                <p className="muted-copy">
+                  保存後は食事記録モーダルからこのショートカットを選び、在庫減算付きで登録できます。
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="form-actions">
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={busy || !mealShortcutForm.items.length}
+            >
+              {editingMealShortcutId
+                ? 'ショートカットを更新'
+                : 'ショートカットを追加'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={closeMealShortcutModal}
             >
               キャンセル
             </button>

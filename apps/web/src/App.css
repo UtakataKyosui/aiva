@@ -599,7 +599,7 @@ button {
 }
 
 .overview-actions .quick-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .priority-item,
@@ -622,6 +622,13 @@ button {
   min-width: 0;
   display: grid;
   gap: 4px;
+}
+
+.list-copy-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .list-copy strong,
@@ -804,8 +811,83 @@ button {
   font-size: 0.84rem;
 }
 
+.composer-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px;
+  border-radius: 18px;
+  background: var(--surface-background);
+}
+
+.composer-toggle-button {
+  min-height: 42px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 14px;
+  color: var(--secondary-button-color);
+  background: transparent;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.composer-toggle-button.active {
+  background: var(--surface-background-strong);
+}
+
+.shortcut-card,
+.shortcut-preview-card,
+.shortcut-builder-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--surface-background);
+}
+
+.shortcut-item-list {
+  display: grid;
+  gap: 10px;
+}
+
+.shortcut-item-row,
+.shortcut-builder-row {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface-background-strong);
+}
+
+.shortcut-item-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.shortcut-builder-row {
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  align-items: end;
+}
+
+.shortcut-remove-button {
+  align-self: center;
+}
+
+.nutrition-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.shortcut-stock-banner {
+  margin: 0;
+}
+
 .full-width {
   grid-column: 1 / -1;
+}
+
+.shortcut-builder-row .full-width {
+  grid-column: auto;
 }
 
 .row-actions {
@@ -1061,6 +1143,10 @@ button {
   .overview-actions .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .nutrition-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1024px) {
@@ -1245,6 +1331,18 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .shortcut-builder-row {
+    grid-template-columns: 1fr;
+  }
+
+  .shortcut-item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-toggle {
+    width: 100%;
+  }
+
   .headbar-actions > .theme-toggle,
   .headbar-actions > .account-badge,
   .headbar-actions > .primary-button,
@@ -1304,6 +1402,10 @@ button {
 
   .mobile-dock-status {
     grid-column: 1 / -1;
+  }
+
+  .nutrition-grid {
+    grid-template-columns: 1fr;
   }
 
   .mobile-sidebar-drawer {
