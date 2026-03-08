@@ -6,8 +6,8 @@
   "scripts": {
     "build": "pnpm --filter @aiva/shared build && pnpm --filter @aiva/web build",
     "build:web": "pnpm --filter @aiva/shared build && pnpm --filter @aiva/web build",
-    "dev": "pnpm --filter @aiva/web dev",
-    "dev:web": "pnpm --filter @aiva/web dev",
+    "dev": "pnpm --filter @aiva/shared build && pnpm --filter @aiva/web dev",
+    "dev:web": "pnpm --filter @aiva/shared build && pnpm --filter @aiva/web dev",
     "format": "moon run :format",
     "lint": "moon run :lint",
     "start": "pnpm --filter @aiva/web start",

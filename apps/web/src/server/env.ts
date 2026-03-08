@@ -7,10 +7,10 @@ import { z } from 'zod';
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = dirname(currentFilePath);
 const envCandidates = [
+  resolve(currentDirPath, '../../.env.local'),
+  resolve(currentDirPath, '../../.env'),
   resolve(currentDirPath, '../../../../.env.local'),
   resolve(currentDirPath, '../../../../.env'),
-  resolve(currentDirPath, '../../../.env.local'),
-  resolve(currentDirPath, '../../../.env'),
 ];
 
 for (const envPath of envCandidates) {

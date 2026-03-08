@@ -6,7 +6,6 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: resolve(__dirname, '../..'),
   },
-  transpilePackages: ['@aiva/shared'],
   serverExternalPackages: [
     '@mastra/core',
     '@mastra/loggers',
