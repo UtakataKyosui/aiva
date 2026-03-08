@@ -12,8 +12,8 @@ import {
   userLlmSettingsInputSchema,
 } from '@aiva/shared';
 import { z } from 'zod';
-import { env } from '../env.js';
-import { decryptSecret, encryptSecret } from './secret-box.js';
+import { env } from '../env';
+import { decryptSecret, encryptSecret } from './secret-box';
 
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models/user';
 const OPENROUTER_CACHE_TTL_MS = 1000 * 60 * 5;

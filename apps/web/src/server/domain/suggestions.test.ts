@@ -5,7 +5,7 @@ import {
   createFallbackSuggestion,
   isFallbackSuggestionResult,
   rankIngredients,
-} from './suggestions.js';
+} from './suggestions';
 
 test('rankIngredients prioritizes items close to expiry', () => {
   const ranked = rankIngredients({

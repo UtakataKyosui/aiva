@@ -22,8 +22,8 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { requireSession } from '../auth/session.js';
-import { db } from '../db/client.js';
+import { requireSession } from '../auth/session';
+import { db } from '../db/client';
 import {
   ingredients,
   mealLogs,
@@ -34,14 +34,14 @@ import {
   suggestionRuns,
   userLlmSettings,
   userPreferences,
-} from '../db/schema.js';
+} from '../db/schema';
 import {
   buildConsumedSnapshot,
   computeShortcutNutrition,
   findShortcutStockIssue,
-} from '../domain/subscription-shortcuts.js';
-import { isFallbackSuggestionResult } from '../domain/suggestions.js';
-import { getTodayInJapan } from '../lib/date.js';
+} from '../domain/subscription-shortcuts';
+import { isFallbackSuggestionResult } from '../domain/suggestions';
+import { getTodayInJapan } from '../lib/date';
 import {
   buildCredentialStatusMap,
   getModelCatalog,
@@ -50,8 +50,8 @@ import {
   validateLlmSettings,
   withoutStoredProviderApiKey,
   withStoredProviderApiKey,
-} from '../lib/llm.js';
-import { mastra } from '../mastra/index.js';
+} from '../lib/llm';
+import { mastra } from '../mastra/index';
 
 const idSchema = z.object({
   id: z.string().uuid(),

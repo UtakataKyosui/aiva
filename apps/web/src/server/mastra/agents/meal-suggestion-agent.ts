@@ -5,7 +5,7 @@ import {
 } from '@aiva/shared';
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
-import { env } from '../../env.js';
+import { env } from '../../env';
 
 export const mealSuggestionObjectSchema = z.object({
   meals: z.array(suggestionMealSchema).min(1).max(3),

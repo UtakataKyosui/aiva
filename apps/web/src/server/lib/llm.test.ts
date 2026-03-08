@@ -4,7 +4,7 @@ import test from 'node:test';
 process.env.DATABASE_URL ??=
   'postgresql://postgres:postgres@localhost:5432/aiva';
 process.env.BETTER_AUTH_SECRET ??= '0123456789abcdef0123456789abcdef';
-process.env.BETTER_AUTH_URL ??= 'http://localhost:4112/api/auth';
+process.env.BETTER_AUTH_URL ??= 'http://localhost:3000/api/auth';
 process.env.WEB_ORIGIN ??= 'http://localhost:3000';
 process.env.GOOGLE_CLIENT_ID ??= 'dummy';
 process.env.GOOGLE_CLIENT_SECRET ??= 'dummy';
@@ -21,7 +21,7 @@ const {
   toMastraModelId,
   withStoredProviderApiKey,
   withoutStoredProviderApiKey,
-} = await import('./llm.js');
+} = await import('./llm');
 
 test('normalizeOpenRouterCatalog keeps text models and maps labels', () => {
   const models = normalizeOpenRouterCatalog({

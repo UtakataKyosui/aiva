@@ -6,14 +6,18 @@ import { z } from 'zod';
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = dirname(currentFilePath);
-const workspaceRootEnvPath = resolve(currentDirPath, '../../../.env');
-const packageEnvPath = resolve(currentDirPath, '../.env');
+const envCandidates = [
+  resolve(currentDirPath, '../../../../.env.local'),
+  resolve(currentDirPath, '../../../../.env'),
+  resolve(currentDirPath, '../../../.env.local'),
+  resolve(currentDirPath, '../../../.env'),
+];
 
-config({
-  path: existsSync(workspaceRootEnvPath)
-    ? workspaceRootEnvPath
-    : packageEnvPath,
-});
+for (const envPath of envCandidates) {
+  if (existsSync(envPath)) {
+    config({ path: envPath, override: false });
+  }
+}
 
 const optionalEnvString = z.preprocess((value) => {
   if (typeof value === 'string' && value.trim() === '') {
@@ -23,20 +27,24 @@ const optionalEnvString = z.preprocess((value) => {
   return value;
 }, z.string().min(1).optional());
 
+const defaultOrigin = `http://localhost:${process.env.PORT ?? '3000'}`;
+
 const envSchema = z.object({
-  API_PORT: z.preprocess(
-    (value) => value ?? process.env.PORT,
-    z.coerce.number().default(4112),
-  ),
   DATABASE_URL: z.string().min(1),
   OPENAI_API_KEY: optionalEnvString,
   OPENROUTER_API_KEY: optionalEnvString,
   LLM_CREDENTIAL_SECRET: optionalEnvString,
   BETTER_AUTH_SECRET: z.string().min(1),
-  BETTER_AUTH_URL: z.string().url(),
-  WEB_ORIGIN: z.string().url(),
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
+  BETTER_AUTH_URL: z.preprocess(
+    (value) => value ?? `${defaultOrigin}/api/auth`,
+    z.string().url(),
+  ),
+  WEB_ORIGIN: z.preprocess(
+    (value) => value ?? defaultOrigin,
+    z.string().url(),
+  ),
+  GOOGLE_CLIENT_ID: optionalEnvString,
+  GOOGLE_CLIENT_SECRET: optionalEnvString,
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default('development'),

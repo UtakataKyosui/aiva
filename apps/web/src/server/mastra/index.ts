@@ -6,9 +6,9 @@ import {
   Observability,
   SensitiveDataFilter,
 } from '@mastra/observability';
-import { env } from '../env.js';
-import { mealSuggestionAgent } from './agents/meal-suggestion-agent.js';
-import { dailySuggestionWorkflow } from './workflows/daily-suggestion-workflow.js';
+import { env } from '../env';
+import { mealSuggestionAgent } from './agents/meal-suggestion-agent';
+import { dailySuggestionWorkflow } from './workflows/daily-suggestion-workflow';
 
 export const mastra = new Mastra({
   agents: { mealSuggestionAgent },

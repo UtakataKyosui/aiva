@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { auth } from './config.js';
+import { auth } from './config';
 
 export const requireSession = async (context: Context) => {
   const session = await auth.api.getSession({

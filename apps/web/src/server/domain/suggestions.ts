@@ -4,7 +4,7 @@ import {
   type UserLlmSettingsInput,
 } from '@aiva/shared';
 import { z } from 'zod';
-import { daysUntil } from '../lib/date.js';
+import { daysUntil } from '../lib/date';
 
 export type IngredientRow = {
   id: string;

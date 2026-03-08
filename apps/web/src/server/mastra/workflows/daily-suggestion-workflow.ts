@@ -7,25 +7,25 @@ import { RequestContext } from '@mastra/core/request-context';
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '../../db/client.js';
+import { db } from '../../db/client';
 import {
   ingredients,
   mealLogs,
   suggestionRuns,
   userLlmSettings,
   userPreferences,
-} from '../../db/schema.js';
+} from '../../db/schema';
 import {
   buildSuggestionPrompt,
   generatedMealPlanSchema,
   rankIngredients,
-} from '../../domain/suggestions.js';
+} from '../../domain/suggestions';
 import {
   resolveProviderApiKey,
   resolveStoredLlmSettings,
   validateLlmSettings,
-} from '../../lib/llm.js';
-import { mealSuggestionAgent } from '../agents/meal-suggestion-agent.js';
+} from '../../lib/llm';
+import { mealSuggestionAgent } from '../agents/meal-suggestion-agent';
 
 const workflowInputSchema = z.object({
   userId: z.string(),

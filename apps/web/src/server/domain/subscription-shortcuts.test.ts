@@ -5,7 +5,7 @@ import {
   computeShortcutNutrition,
   findShortcutStockIssue,
   type ResolvedShortcutItem,
-} from './subscription-shortcuts.js';
+} from './subscription-shortcuts';
 
 const baseItems = (): ResolvedShortcutItem[] => [
   {

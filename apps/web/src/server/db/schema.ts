@@ -9,9 +9,9 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import * as authSchema from './auth-schema.js';
+import * as authSchema from './auth-schema';
 
-export * from './auth-schema.js';
+export * from './auth-schema';
 
 type StoredProviderKey = {
   ciphertext: string;
