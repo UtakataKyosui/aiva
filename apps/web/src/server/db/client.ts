@@ -1,14 +1,18 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 import { env } from '../env';
 import { schema } from './schema';
 
-export const sql = postgres(env.DATABASE_URL, {
+export const pool = new Pool({
+  connectionString: env.DATABASE_URL,
   max: 10,
-  prepare: false,
-  connection: {
-    search_path: 'public',
-  },
+  ssl:
+    env.NODE_ENV === 'production'
+      ? {
+          rejectUnauthorized: false,
+        }
+      : undefined,
+  options: '-c search_path=public',
 });
 
-export const db = drizzle(sql, { schema });
+export const db = drizzle(pool, { schema });

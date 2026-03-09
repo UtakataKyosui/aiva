@@ -1,9 +1,9 @@
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { db, sql } from './client';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { db, pool } from './client';
 
 const main = async () => {
   await migrate(db, { migrationsFolder: 'drizzle' });
-  await sql.end();
+  await pool.end();
 };
 
 main().catch((error) => {
