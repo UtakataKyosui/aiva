@@ -51,7 +51,6 @@ import {
   withoutStoredProviderApiKey,
   withStoredProviderApiKey,
 } from '../lib/llm';
-import { mastra } from '../mastra/index';
 
 const idSchema = z.object({
   id: z.string().uuid(),
@@ -1188,6 +1187,7 @@ appRoutes.get('/suggestions/today', async (context) => {
 appRoutes.post('/suggestions/today', async (context) => {
   const { user } = await requireSession(context);
   const today = getTodayInJapan();
+  const { mastra } = await import('../mastra/index');
   const workflow = mastra.getWorkflow('dailySuggestionWorkflow');
 
   if (!workflow) {

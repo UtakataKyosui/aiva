@@ -1,9 +1,8 @@
-import { apiApp } from '@/server/api/app';
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const handle = (request: Request) => {
+const handle = async (request: Request) => {
+  const { apiApp } = await import('@/server/api/app');
   return apiApp.fetch(request);
 };
 
